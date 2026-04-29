@@ -1,17 +1,23 @@
 import type { BackendState } from "@termira/shared";
+import { DEFAULT_LANGUAGE, getMessages, type AppLanguage } from "../i18n/messages";
 
-export function formatBackendState(state: BackendState): string {
+export function formatBackendState(
+  state: BackendState,
+  language: AppLanguage = DEFAULT_LANGUAGE
+): string {
+  const text = getMessages(language);
+
   switch (state) {
     case "online":
-      return "Online";
+      return text.status.online;
     case "starting":
-      return "Starting";
+      return text.status.starting;
     case "error":
-      return "Error";
+      return text.status.error;
     case "offline":
-      return "Offline";
+      return text.status.offline;
     default:
-      return assertNever(state);
+      return assertNever(state, language);
   }
 }
 
@@ -30,6 +36,6 @@ export function getBackendStateTone(state: BackendState): "good" | "warn" | "bad
   }
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled backend state: ${value}`);
+function assertNever(value: never, language: AppLanguage = DEFAULT_LANGUAGE): never {
+  throw new Error(getMessages(language).errors.unhandledBackendState(value));
 }
