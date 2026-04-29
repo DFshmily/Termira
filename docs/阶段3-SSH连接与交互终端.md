@@ -48,11 +48,24 @@
 前端工作台终端区域已从静态 `<pre>` 切换为 xterm：
 
 - 新建终端标签时创建 SSH session 和 terminal channel。
+- 主机列表支持编辑、删除和双击连接；同一主机已有已连接终端时双击会聚焦现有会话，避免重复打开多个 shell。
 - xterm `onData` 调用 `terminal.write`。
 - `terminal.output` 事件直接写入对应 xterm 实例。
 - 窗口 resize、侧栏折叠和工具区折叠会触发 fit，并 debounce 调用 `terminal.resize`。
-- 关闭标签会关闭 terminal channel 并断开 SSH session。
+- 关闭标签会关闭 terminal channel、断开 SSH session，并从标签栏移除该标签；最后一个标签关闭后只显示空状态，不再保留伪标签。
 - 连接失败显示在终端状态栏和标签状态中。
+- 开发态热更新会清理旧 IPC 监听，防止终端输出重复渲染。
+
+主机删除行为：
+
+- 删除前弹出确认框。
+- 删除主机配置时会同步清理关联的 Vault 凭据，避免留下孤儿凭据。
+- 删除主机前会关闭该主机关联的终端 channel 和 SSH session。
+
+工具区边界：
+
+- SFTP、端口转发、监控和进程管理在本阶段不展示伪造数据，只显示后续阶段接入说明。
+- 快捷命令面板保留发送到当前终端的能力；未连接时发送按钮禁用。
 
 ## 验证结果
 

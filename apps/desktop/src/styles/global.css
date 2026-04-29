@@ -311,7 +311,7 @@ h2 {
 
 .host-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   min-height: 54px;
@@ -343,7 +343,13 @@ h2 {
   cursor: pointer;
 }
 
-.host-row-edit {
+.host-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.host-row-action {
   display: grid;
   width: 28px;
   height: 28px;
@@ -356,11 +362,17 @@ h2 {
   opacity: 0.72;
 }
 
-.host-row-edit:hover {
+.host-row-action:hover {
   color: var(--color-accent-strong);
   border-color: rgba(66, 197, 173, 0.32);
   background: rgba(66, 197, 173, 0.09);
   opacity: 1;
+}
+
+.host-row-action--danger:hover {
+  color: var(--color-danger);
+  border-color: rgba(239, 125, 115, 0.36);
+  background: rgba(239, 125, 115, 0.1);
 }
 
 .host-row-icon {
@@ -825,6 +837,38 @@ h2 {
   min-height: 0;
   overflow: auto;
   padding: var(--space-3);
+}
+
+.tool-future {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-2);
+  color: var(--color-text-muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tool-future span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: var(--radius-2);
+  color: var(--color-accent-strong);
+  background: rgba(66, 197, 173, 0.1);
+}
+
+.tool-future strong {
+  max-width: 280px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .tool-path {

@@ -5,21 +5,16 @@ import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
   BarChart3,
-  CheckCircle2,
   Clock,
   Command,
   Cpu,
-  Download,
-  FileText,
   Folder,
   FolderOpen,
   Gauge,
-  HardDrive,
   KeyRound,
   Loader2,
   Lock,
   Maximize2,
-  MoreHorizontal,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
@@ -29,7 +24,6 @@ import {
   Palette,
   Play,
   Plus,
-  RefreshCcw,
   Search,
   Server,
   Settings,
@@ -38,12 +32,12 @@ import {
   Square,
   Star,
   Terminal,
+  Trash2,
   Unlock,
-  Upload,
   X,
   Zap
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -180,52 +174,6 @@ type ToolDefinition = {
   icon: LucideIcon;
 };
 
-type FileEntry = {
-  id: string;
-  name: string;
-  kind: "directory" | "file";
-  size: string;
-  modified: string;
-  permissions: string;
-};
-
-type TransferEntry = {
-  id: string;
-  name: string;
-  direction: "upload" | "download";
-  progress: number;
-  status: "running" | "failed" | "queued";
-  detail: LocalizedText;
-};
-
-type ForwardRule = {
-  id: string;
-  name: LocalizedText;
-  type: "local" | "remote" | "dynamic";
-  listen: string;
-  target: string;
-  status: "running" | "starting" | "failed" | "stopped";
-  detail: LocalizedText;
-};
-
-type MonitorMetric = {
-  id: string;
-  label: LocalizedText;
-  value: string;
-  helper: LocalizedText;
-  percent: number;
-  tone: StatusTone;
-};
-
-type ProcessEntry = {
-  pid: number;
-  user: string;
-  cpu: string;
-  memory: string;
-  command: string;
-  status: "healthy" | "hot" | "system";
-};
-
 type QuickCommand = {
   id: string;
   name: LocalizedText;
@@ -260,149 +208,6 @@ const toolDefinitions: ToolDefinition[] = [
   { id: "monitor", label: { "zh-CN": "监控", "en-US": "Monitor" }, icon: BarChart3 },
   { id: "processes", label: { "zh-CN": "进程", "en-US": "Processes" }, icon: Cpu },
   { id: "commands", label: { "zh-CN": "命令", "en-US": "Commands" }, icon: Command }
-];
-
-const fileEntries: FileEntry[] = [
-  {
-    id: "logs",
-    name: "logs",
-    kind: "directory",
-    size: "-",
-    modified: "2026-04-29 10:12",
-    permissions: "drwxr-xr-x"
-  },
-  {
-    id: "releases",
-    name: "releases",
-    kind: "directory",
-    size: "-",
-    modified: "2026-04-28 23:48",
-    permissions: "drwxr-xr-x"
-  },
-  {
-    id: "app-log",
-    name: "application-2026-04-29-production-api-request-with-extra-long-name.log",
-    kind: "file",
-    size: "128.4 MB",
-    modified: "2026-04-29 10:21",
-    permissions: "-rw-r-----"
-  },
-  {
-    id: "env",
-    name: ".env.production",
-    kind: "file",
-    size: "4.8 KB",
-    modified: "2026-04-29 09:55",
-    permissions: "-rw-------"
-  }
-];
-
-const transferEntries: TransferEntry[] = [
-  {
-    id: "upload-config",
-    name: "nginx-site.conf",
-    direction: "upload",
-    progress: 68,
-    status: "running",
-    detail: { "zh-CN": "上传中 1.8 MB/s", "en-US": "Uploading 1.8 MB/s" }
-  },
-  {
-    id: "download-log",
-    name: "application-2026-04-29.log",
-    direction: "download",
-    progress: 100,
-    status: "queued",
-    detail: { "zh-CN": "等待校验", "en-US": "Waiting for checksum" }
-  },
-  {
-    id: "secure-log",
-    name: "/var/log/secure",
-    direction: "download",
-    progress: 18,
-    status: "failed",
-    detail: { "zh-CN": "权限不足，可重试", "en-US": "Permission denied, retry available" }
-  }
-];
-
-const forwardRules: ForwardRule[] = [
-  {
-    id: "local-admin",
-    name: { "zh-CN": "本地访问管理后台", "en-US": "Local admin console" },
-    type: "local",
-    listen: "127.0.0.1:18080",
-    target: "10.0.8.12:8080",
-    status: "running",
-    detail: { "zh-CN": "已转发 36 分钟", "en-US": "Forwarding for 36 min" }
-  },
-  {
-    id: "remote-hook",
-    name: { "zh-CN": "远程回调调试", "en-US": "Remote webhook debug" },
-    type: "remote",
-    listen: "0.0.0.0:19090",
-    target: "127.0.0.1:9090",
-    status: "starting",
-    detail: { "zh-CN": "正在请求远端监听", "en-US": "Requesting remote bind" }
-  },
-  {
-    id: "socks-dynamic",
-    name: { "zh-CN": "动态 SOCKS 代理", "en-US": "Dynamic SOCKS proxy" },
-    type: "dynamic",
-    listen: "127.0.0.1:1086",
-    target: "-",
-    status: "stopped",
-    detail: { "zh-CN": "手动启动", "en-US": "Manual start" }
-  },
-  {
-    id: "occupied",
-    name: { "zh-CN": "本地 5432 数据库", "en-US": "Local 5432 database" },
-    type: "local",
-    listen: "127.0.0.1:5432",
-    target: "10.0.8.15:5432",
-    status: "failed",
-    detail: { "zh-CN": "端口已被占用", "en-US": "Port already in use" }
-  }
-];
-
-const monitorMetrics: MonitorMetric[] = [
-  {
-    id: "cpu",
-    label: { "zh-CN": "CPU", "en-US": "CPU" },
-    value: "42%",
-    helper: { "zh-CN": "8 核 / load 1.82", "en-US": "8 cores / load 1.82" },
-    percent: 42,
-    tone: "good"
-  },
-  {
-    id: "memory",
-    label: { "zh-CN": "内存", "en-US": "Memory" },
-    value: "71%",
-    helper: { "zh-CN": "11.4 / 16 GB", "en-US": "11.4 / 16 GB" },
-    percent: 71,
-    tone: "warn"
-  },
-  {
-    id: "disk",
-    label: { "zh-CN": "磁盘", "en-US": "Disk" },
-    value: "63%",
-    helper: { "zh-CN": "/data 318 GB 可用", "en-US": "/data 318 GB free" },
-    percent: 63,
-    tone: "good"
-  },
-  {
-    id: "network",
-    label: { "zh-CN": "网络", "en-US": "Network" },
-    value: "18 MB/s",
-    helper: { "zh-CN": "入 12.1 / 出 5.9", "en-US": "In 12.1 / out 5.9" },
-    percent: 36,
-    tone: "muted"
-  }
-];
-
-const processEntries: ProcessEntry[] = [
-  { pid: 1842, user: "termira", cpu: "36.8", memory: "512M", command: "java -jar termira-api.jar", status: "hot" },
-  { pid: 2206, user: "nginx", cpu: "8.2", memory: "96M", command: "nginx: worker process", status: "healthy" },
-  { pid: 3090, user: "postgres", cpu: "4.1", memory: "1.2G", command: "postgres: writer process", status: "system" },
-  { pid: 6118, user: "deploy", cpu: "1.4", memory: "42M", command: "tail -f /srv/termira/api/current/logs/application.log", status: "healthy" }
 ];
 
 const quickCommands: QuickCommand[] = [
@@ -448,7 +253,6 @@ export function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
-  const [processSearch, setProcessSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
   const [terminalTabs, setTerminalTabs] = useState<TerminalSession[]>([]);
@@ -484,7 +288,7 @@ export function App() {
     }),
     [selectedHost]
   );
-  const visibleTerminalTabs = terminalTabs.length > 0 ? terminalTabs : [previewTerminalTab];
+  const visibleTerminalTabs = terminalTabs;
   const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
@@ -497,20 +301,6 @@ export function App() {
     [favoriteHosts, hostSearch, language]
   );
   const visibleRecentHosts = useMemo(() => filterHosts(recentHosts, hostSearch, language), [recentHosts, hostSearch, language]);
-  const visibleProcesses = useMemo(() => {
-    const query = processSearch.trim().toLocaleLowerCase();
-    if (!query) {
-      return processEntries;
-    }
-
-    return processEntries.filter((process) =>
-      [process.pid, process.user, process.cpu, process.memory, process.command]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(query)
-    );
-  }, [processSearch]);
-
   const fitAndResizeTerminal = useCallback((tabId: string) => {
     const entry = xtermEntriesRef.current.get(tabId);
     if (!entry) {
@@ -697,6 +487,10 @@ export function App() {
         )
       );
     };
+
+    window.termira.removeAllListeners?.("terminal.output");
+    window.termira.removeAllListeners?.("terminal.closed");
+    window.termira.removeAllListeners?.("ssh.statusChanged");
 
     window.termira.on("terminal.output", onOutput);
     window.termira.on("terminal.closed", onTerminalClosed);
@@ -897,6 +691,45 @@ export function App() {
     setIsHostEditorOpen(true);
   }
 
+  async function deleteHost(host: HostItem) {
+    if (host.id === "__placeholder") {
+      return;
+    }
+    const profile = hostProfiles.find((item) => item.id === host.id);
+    const credentialRef = profile?.auth.credentialRef;
+    const accepted = window.confirm(text.hosts.confirmDeleteHost(translate(host.name, language), Boolean(credentialRef)));
+    if (!accepted) {
+      return;
+    }
+
+    setHostError(null);
+    try {
+      if (credentialRef) {
+        await window.termira.invoke("credential.delete", { credentialId: credentialRef });
+      }
+      await window.termira.invoke("profile.delete", { id: host.id });
+      const tabsToClose = terminalTabsRef.current.filter((tab) => tab.hostId === host.id);
+      for (const tab of tabsToClose) {
+        if (tab.sessionId && tab.channelId) {
+          await window.termira.invoke("terminal.close", { sessionId: tab.sessionId, channelId: tab.channelId }).catch(() => undefined);
+        }
+        if (tab.sessionId) {
+          await window.termira.invoke("ssh.disconnect", { sessionId: tab.sessionId }).catch(() => undefined);
+        }
+        disposeTerminal(tab.id);
+      }
+      setTerminalTabs((current) => current.filter((tab) => tab.hostId !== host.id));
+      if (selectedHostId === host.id) {
+        setSelectedHostId("");
+      }
+      await refreshProfiles();
+      await refreshVaultStatus();
+    } catch (error) {
+      setHostError(errorMessage(error));
+      await refreshVaultStatus();
+    }
+  }
+
   function selectHost(hostId: string) {
     setSelectedHostId(hostId);
     setActiveView("hosts");
@@ -924,7 +757,25 @@ export function App() {
       return;
     }
 
+    const connectedTab = terminalTabsRef.current.find((tab) => tab.hostId === host.id && tab.status === "connected");
+    if (!existingTabId && connectedTab) {
+      setActiveTerminalTabId(connectedTab.id);
+      return;
+    }
+
     const tabId = existingTabId && existingTabId !== "tab-preview" ? existingTabId : `tab_${Date.now()}`;
+    const currentTab = terminalTabsRef.current.find((tab) => tab.id === tabId);
+    if (currentTab?.status === "connected" || currentTab?.status === "connecting") {
+      setActiveTerminalTabId(currentTab.id);
+      return;
+    }
+    if (currentTab?.sessionId && currentTab.channelId) {
+      await window.termira.invoke("terminal.close", { sessionId: currentTab.sessionId, channelId: currentTab.channelId }).catch(() => undefined);
+    }
+    if (currentTab?.sessionId) {
+      await window.termira.invoke("ssh.disconnect", { sessionId: currentTab.sessionId }).catch(() => undefined);
+    }
+
     const nextTab: TerminalSession = {
       id: tabId,
       hostId: host.id,
@@ -1026,6 +877,23 @@ export function App() {
     }
   }
 
+  async function sendCommandToActiveTerminal(command: string) {
+    if (!activeTerminal.sessionId || !activeTerminal.channelId || activeTerminal.status !== "connected") {
+      setTerminalError(text.tools.commands.unavailable);
+      return;
+    }
+    setTerminalError(null);
+    try {
+      await window.termira.invoke("terminal.write", {
+        sessionId: activeTerminal.sessionId,
+        channelId: activeTerminal.channelId,
+        data: `${command}\n`
+      });
+    } catch (error) {
+      setTerminalError(errorMessage(error));
+    }
+  }
+
   function renderHostRows(items: HostItem[], emptyText: string) {
     if (items.length === 0) {
       return <p className="empty-copy">{emptyText}</p>;
@@ -1040,7 +908,13 @@ export function App() {
           key={host.id}
           className={`host-row ${selectedHost.id === host.id ? "is-active" : ""}`}
         >
-          <button className="host-row-main" type="button" onClick={() => selectHost(host.id)}>
+          <button
+            className="host-row-main"
+            type="button"
+            title={text.hosts.doubleClickConnect}
+            onClick={() => selectHost(host.id)}
+            onDoubleClick={() => openTerminalForHost(host)}
+          >
             <span className={`host-row-icon host-row-icon--${tone}`}>
               <Server size={15} aria-hidden="true" />
             </span>
@@ -1052,15 +926,26 @@ export function App() {
               {text.hosts.statusLabels[host.status]}
             </span>
           </button>
-          <button
-            className="host-row-edit"
-            type="button"
-            title={text.hosts.editHost}
-            aria-label={text.hosts.editHost}
-            onClick={() => openEditHostEditor(host.id)}
-          >
-            <Pencil size={13} aria-hidden="true" />
-          </button>
+          <span className="host-row-actions">
+            <button
+              className="host-row-action"
+              type="button"
+              title={text.hosts.editHost}
+              aria-label={text.hosts.editHost}
+              onClick={() => openEditHostEditor(host.id)}
+            >
+              <Pencil size={13} aria-hidden="true" />
+            </button>
+            <button
+              className="host-row-action host-row-action--danger"
+              type="button"
+              title={text.hosts.deleteHost}
+              aria-label={text.hosts.deleteHost}
+              onClick={() => void deleteHost(host)}
+            >
+              <Trash2 size={13} aria-hidden="true" />
+            </button>
+          </span>
         </div>
       );
     });
@@ -1069,64 +954,7 @@ export function App() {
   function renderFilesPanel() {
     return (
       <div className="tool-content">
-        <div className="tool-path" title={selectedHost.remotePath}>
-          <FolderOpen size={16} aria-hidden="true" />
-          <span>{selectedHost.remotePath}</span>
-        </div>
-
-        <div className="icon-toolbar" aria-label={text.tools.files.toolbar}>
-          <button type="button" title={text.actions.refresh} aria-label={text.actions.refresh}>
-            <RefreshCcw size={15} aria-hidden="true" />
-          </button>
-          <button type="button" title={text.tools.files.upload} aria-label={text.tools.files.upload}>
-            <Upload size={15} aria-hidden="true" />
-          </button>
-          <button type="button" title={text.tools.files.download} aria-label={text.tools.files.download}>
-            <Download size={15} aria-hidden="true" />
-          </button>
-          <button type="button" disabled title={text.tools.files.moreDisabled} aria-label={text.tools.files.moreDisabled}>
-            <MoreHorizontal size={15} aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="file-table" role="table" aria-label={text.tools.files.list}>
-          <div className="file-row file-row--head" role="row">
-            <span>{text.tools.files.name}</span>
-            <span>{text.tools.files.size}</span>
-            <span>{text.tools.files.modified}</span>
-          </div>
-          {fileEntries.map((entry) => (
-            <button key={entry.id} className="file-row" type="button" role="row">
-              <span className="file-name" title={entry.name}>
-                {entry.kind === "directory" ? <Folder size={15} aria-hidden="true" /> : <FileText size={15} aria-hidden="true" />}
-                <span>{entry.name}</span>
-              </span>
-              <span>{entry.size}</span>
-              <span>{entry.modified}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="subpanel">
-          <div className="subpanel-heading">
-            <strong>{text.tools.files.queue}</strong>
-            <span>{text.tools.files.queueCount(transferEntries.length)}</span>
-          </div>
-          <div className="queue-list">
-            {transferEntries.map((entry) => (
-              <div key={entry.id} className={`queue-item queue-item--${entry.status}`}>
-                <div className="queue-main">
-                  {entry.direction === "upload" ? <Upload size={15} aria-hidden="true" /> : <Download size={15} aria-hidden="true" />}
-                  <span title={entry.name}>{entry.name}</span>
-                  <strong>{translate(entry.detail, language)}</strong>
-                </div>
-                <div className="progress-track" aria-label={`${entry.progress}%`}>
-                  <span style={{ width: `${entry.progress}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        {renderFutureToolPanel(<FolderOpen size={18} aria-hidden="true" />, text.tools.files.unavailable)}
       </div>
     );
   }
@@ -1134,50 +962,7 @@ export function App() {
   function renderForwardsPanel() {
     return (
       <div className="tool-content">
-        <div className="split-actions">
-          <button className="button button--compact button--accent" type="button">
-            <Plus size={15} aria-hidden="true" />
-            <span>{text.tools.forwards.newRule}</span>
-          </button>
-          <button className="button button--compact" type="button">
-            <RefreshCcw size={15} aria-hidden="true" />
-            <span>{text.actions.refresh}</span>
-          </button>
-        </div>
-
-        <div className="rule-list">
-          {forwardRules.map((rule) => (
-            <div key={rule.id} className={`rule-card rule-card--${rule.status}`}>
-              <div className="rule-card-head">
-                <div>
-                  <strong title={translate(rule.name, language)}>{translate(rule.name, language)}</strong>
-                  <span>{text.tools.forwards.typeLabels[rule.type]}</span>
-                </div>
-                <span className={`state-badge state-badge--${getForwardTone(rule.status)}`}>
-                  {rule.status === "starting" ? <Loader2 size={13} aria-hidden="true" /> : null}
-                  {text.tools.forwards.statusLabels[rule.status]}
-                </span>
-              </div>
-              <div className="rule-route">
-                <code>{rule.listen}</code>
-                <span>→</span>
-                <code>{rule.target}</code>
-              </div>
-              <div className="rule-card-foot">
-                <span>{translate(rule.detail, language)}</span>
-                <button
-                  className="icon-button"
-                  type="button"
-                  disabled={rule.status === "starting"}
-                  title={rule.status === "running" ? text.actions.stop : text.actions.start}
-                  aria-label={rule.status === "running" ? text.actions.stop : text.actions.start}
-                >
-                  {rule.status === "running" ? <Square size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        {renderFutureToolPanel(<Network size={18} aria-hidden="true" />, text.tools.forwards.unavailable)}
       </div>
     );
   }
@@ -1185,38 +970,7 @@ export function App() {
   function renderMonitorPanel() {
     return (
       <div className="tool-content">
-        <div className="monitor-summary">
-          <div>
-            <Gauge size={18} aria-hidden="true" />
-            <span>{text.tools.monitor.uptime}</span>
-            <strong>18d 04h</strong>
-          </div>
-          <div>
-            <HardDrive size={18} aria-hidden="true" />
-            <span>{text.tools.monitor.refresh}</span>
-            <strong>{text.tools.monitor.refreshing}</strong>
-          </div>
-        </div>
-
-        <div className="metric-stack">
-          {monitorMetrics.map((metric) => (
-            <div key={metric.id} className={`metric-card metric-card--${metric.tone}`}>
-              <div className="metric-card-head">
-                <span>{translate(metric.label, language)}</span>
-                <strong>{metric.value}</strong>
-              </div>
-              <div className="progress-track" aria-label={`${metric.percent}%`}>
-                <span style={{ width: `${metric.percent}%` }} />
-              </div>
-              <small>{translate(metric.helper, language)}</small>
-            </div>
-          ))}
-        </div>
-
-        <div className="inline-state inline-state--error">
-          <AlertTriangle size={15} aria-hidden="true" />
-          <span>{text.tools.monitor.partialError}</span>
-        </div>
+        {renderFutureToolPanel(<Gauge size={18} aria-hidden="true" />, text.tools.monitor.unavailable)}
       </div>
     );
   }
@@ -1224,46 +978,7 @@ export function App() {
   function renderProcessesPanel() {
     return (
       <div className="tool-content">
-        <label className="search-box search-box--compact">
-          <Search size={15} aria-hidden="true" />
-          <input
-            type="search"
-            value={processSearch}
-            placeholder={text.tools.processes.searchPlaceholder}
-            onChange={(event) => setProcessSearch(event.target.value)}
-          />
-        </label>
-
-        <div className="process-table" role="table" aria-label={text.tools.processes.title}>
-          <div className="process-row process-row--head" role="row">
-            <span>PID</span>
-            <span>CPU</span>
-            <span>MEM</span>
-            <span>{text.tools.processes.command}</span>
-          </div>
-          {visibleProcesses.map((process) => (
-            <div key={process.pid} className={`process-row process-row--${process.status}`} role="row">
-              <span>{process.pid}</span>
-              <span>{process.cpu}%</span>
-              <span>{process.memory}</span>
-              <span title={process.command}>{process.command}</span>
-              <button
-                className="icon-button"
-                type="button"
-                disabled={process.status === "system"}
-                title={text.tools.processes.kill}
-                aria-label={text.tools.processes.kill}
-              >
-                <X size={13} aria-hidden="true" />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="inline-state">
-          <CheckCircle2 size={15} aria-hidden="true" />
-          <span>{text.tools.processes.loaded(visibleProcesses.length)}</span>
-        </div>
+        {renderFutureToolPanel(<Cpu size={18} aria-hidden="true" />, text.tools.processes.unavailable)}
       </div>
     );
   }
@@ -1272,14 +987,18 @@ export function App() {
     return (
       <div className="tool-content">
         <div className="split-actions">
-          <button className="button button--compact button--accent" type="button">
+          <button className="button button--compact button--accent" type="button" disabled>
             <Plus size={15} aria-hidden="true" />
             <span>{text.tools.commands.newCommand}</span>
           </button>
-          <button className="button button--compact" type="button">
+          <button className="button button--compact" type="button" disabled>
             <Folder size={15} aria-hidden="true" />
             <span>{text.tools.commands.groups}</span>
           </button>
+        </div>
+        <div className="inline-state">
+          <Zap size={15} aria-hidden="true" />
+          <span>{text.tools.commands.unavailable}</span>
         </div>
 
         <div className="command-list">
@@ -1293,8 +1012,9 @@ export function App() {
                 <button
                   className="button button--compact"
                   type="button"
-                  disabled={command.disabled}
+                  disabled={command.disabled || activeTerminal.status !== "connected"}
                   title={text.tools.commands.send}
+                  onClick={() => sendCommandToActiveTerminal(command.command)}
                 >
                   <Zap size={14} aria-hidden="true" />
                   <span>{text.tools.commands.send}</span>
@@ -1324,6 +1044,15 @@ export function App() {
       default:
         return assertNever(activeTool);
     }
+  }
+
+  function renderFutureToolPanel(icon: ReactNode, message: string) {
+    return (
+      <div className="tool-future">
+        <span>{icon}</span>
+        <strong>{message}</strong>
+      </div>
+    );
   }
 
   function renderToolSideRail() {
@@ -1991,21 +1720,6 @@ function filterHosts(items: HostItem[], queryText: string, language: AppLanguage
 
     return searchable.includes(query);
   });
-}
-
-function getForwardTone(status: ForwardRule["status"]): StatusTone {
-  switch (status) {
-    case "running":
-      return "good";
-    case "starting":
-      return "warn";
-    case "failed":
-      return "bad";
-    case "stopped":
-      return "muted";
-    default:
-      return assertNever(status);
-  }
 }
 
 function buildHostStatusMap(tabs: TerminalSession[]): Map<string, ConnectionState> {

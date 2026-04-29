@@ -36,5 +36,8 @@ contextBridge.exposeInMainWorld("termira", {
     if (eventListeners?.size === 0) {
       listeners.delete(event);
     }
+  },
+  removeAllListeners(event: string) {
+    listeners.delete(event);
   }
 });

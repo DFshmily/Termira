@@ -30,6 +30,12 @@ export const messages = {
       searchPlaceholder: "搜索主机、分组或账号",
       newHost: "新建主机",
       editHost: "编辑主机",
+      deleteHost: "删除主机",
+      confirmDeleteHost: (hostName: string, hasCredential: boolean) =>
+        hasCredential
+          ? `删除主机「${hostName}」？这会同时删除本地主机配置和关联的 Vault 凭据。`
+          : `删除主机「${hostName}」？这会移除本地主机配置。`,
+      doubleClickConnect: "双击连接",
       connect: "连接",
       disconnect: "断开",
       favorites: "收藏",
@@ -92,6 +98,7 @@ export const messages = {
       collapsePanel: "折叠工具面板",
       expandPanel: "展开工具面板",
       files: {
+        unavailable: "SFTP 将在阶段 4 接入真实远程文件能力。",
         toolbar: "文件工具栏",
         list: "远程文件",
         upload: "上传",
@@ -104,6 +111,7 @@ export const messages = {
         queueCount: (count: number) => `${count} 个任务`
       },
       forwards: {
+        unavailable: "端口转发将在阶段 5 接入真实 SSH tunnel。",
         newRule: "新建规则",
         typeLabels: {
           local: "本地",
@@ -118,12 +126,14 @@ export const messages = {
         }
       },
       monitor: {
+        unavailable: "监控将在阶段 6 通过 SSH exec 采集真实指标。",
         uptime: "运行时间",
         refresh: "采集",
         refreshing: "3 秒刷新中",
         partialError: "磁盘 inode 采集暂不可用"
       },
       processes: {
+        unavailable: "进程管理将在阶段 7 通过 SSH exec 接入真实列表。",
         title: "进程列表",
         searchPlaceholder: "搜索 PID、用户或命令",
         command: "命令",
@@ -131,6 +141,7 @@ export const messages = {
         loaded: (count: number) => `已载入 ${count} 个进程`
       },
       commands: {
+        unavailable: "已连接终端后，快捷命令可发送到当前会话。",
         newCommand: "新建命令",
         groups: "分组",
         send: "发送"
@@ -212,6 +223,12 @@ export const messages = {
       searchPlaceholder: "Search hosts, groups, or users",
       newHost: "New host",
       editHost: "Edit host",
+      deleteHost: "Delete host",
+      confirmDeleteHost: (hostName: string, hasCredential: boolean) =>
+        hasCredential
+          ? `Delete "${hostName}"? This also deletes the local host profile and its linked Vault credential.`
+          : `Delete "${hostName}"? This removes the local host profile.`,
+      doubleClickConnect: "Double-click to connect",
       connect: "Connect",
       disconnect: "Disconnect",
       favorites: "Favorites",
@@ -274,6 +291,7 @@ export const messages = {
       collapsePanel: "Collapse tool panel",
       expandPanel: "Expand tool panel",
       files: {
+        unavailable: "SFTP will be wired to real remote files in stage 4.",
         toolbar: "File toolbar",
         list: "Remote files",
         upload: "Upload",
@@ -286,6 +304,7 @@ export const messages = {
         queueCount: (count: number) => `${count} tasks`
       },
       forwards: {
+        unavailable: "Port forwarding will be wired to real SSH tunnels in stage 5.",
         newRule: "New rule",
         typeLabels: {
           local: "Local",
@@ -300,12 +319,14 @@ export const messages = {
         }
       },
       monitor: {
+        unavailable: "Monitor metrics will be collected through SSH exec in stage 6.",
         uptime: "Uptime",
         refresh: "Collect",
         refreshing: "Refreshing every 3s",
         partialError: "Disk inode collection is unavailable"
       },
       processes: {
+        unavailable: "Process management will be wired through SSH exec in stage 7.",
         title: "Process list",
         searchPlaceholder: "Search PID, user, or command",
         command: "Command",
@@ -313,6 +334,7 @@ export const messages = {
         loaded: (count: number) => `${count} processes loaded`
       },
       commands: {
+        unavailable: "After connecting a terminal, quick commands can be sent to the current session.",
         newCommand: "New command",
         groups: "Groups",
         send: "Send"
