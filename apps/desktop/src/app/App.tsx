@@ -49,6 +49,7 @@ type ToolPanelId = "themes" | "files" | "forwards" | "monitor" | "processes" | "
 type ConnectionState = "connected" | "connecting" | "disconnected" | "failed" | "timeout";
 type StatusTone = "good" | "warn" | "bad" | "muted";
 type LocalizedText = Record<AppLanguage, string>;
+type TerminalTabKind = "terminal" | "hostPicker";
 type TerminalThemeId = "pro" | "ocean" | "dracula" | "monokai" | "solarized-dark" | "solarized-light" | "red-sands" | "man-page" | "novel";
 type TerminalFontId = "source-code-pro" | "sf-mono" | "menlo" | "monaco" | "consolas" | "jetbrains-mono";
 
@@ -122,6 +123,7 @@ type HostFormState = {
 
 type TerminalSession = {
   id: string;
+  kind?: TerminalTabKind;
   hostId: string;
   title: LocalizedText;
   cwd: string;
@@ -202,6 +204,7 @@ type TerminalFontOption = {
 };
 
 const LANGUAGE_STORAGE_KEY = "termira.ui.language";
+const HOST_PICKER_HOST_ID = "__host_picker";
 const TERMINAL_THEME_STORAGE_KEY = "termira.terminal.theme";
 const TERMINAL_FONT_STORAGE_KEY = "termira.terminal.font";
 const TERMINAL_FONT_SIZE_STORAGE_KEY = "termira.terminal.fontSize";
@@ -665,9 +668,9 @@ export function App() {
   );
   const visibleTerminalTabs = terminalTabs;
   const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
+  const isHostPickerActive = activeTerminal.kind === "hostPicker";
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeTerminalHostLabel = activeTerminalHost.id === "__placeholder" ? text.terminal.noHost : formatHostAddress(activeTerminalHost);
-  const newTerminalHost = activeTerminalHost.id !== "__placeholder" ? activeTerminalHost : selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
   const terminalTheme = terminalThemesById.get(terminalThemeId) ?? terminalThemes[0];
   const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
@@ -1211,6 +1214,7 @@ export function App() {
 
     const nextTab: TerminalSession = {
       id: tabId,
+      kind: "terminal",
       hostId: host.id,
       title: host.name,
       cwd: host.remotePath,
@@ -1309,8 +1313,23 @@ export function App() {
     await openTerminalForHost(activeTerminalHost, activeTerminal.id);
   }
 
-  async function openNewTerminalTab() {
-    await openTerminalForHost(newTerminalHost);
+  function openNewTerminalTab() {
+    const tabId = createHostPickerTabId();
+    const nextTab: TerminalSession = {
+      id: tabId,
+      kind: "hostPicker",
+      hostId: HOST_PICKER_HOST_ID,
+      title: createHostPickerTitle(),
+      cwd: "~",
+      status: "disconnected"
+    };
+    const nextTabs = [...terminalTabsRef.current, nextTab];
+    terminalTabsRef.current = nextTabs;
+    setTerminalTabs(nextTabs);
+    setActiveTerminalTabId(tabId);
+    setSelectedHostId("");
+    setTerminalError(null);
+    setActiveView("terminal");
   }
 
   async function disconnectActiveTerminal() {
@@ -1360,6 +1379,11 @@ export function App() {
     }
   }
 
+  function openHostFromHostList(host: HostItem) {
+    const reusableTabId = activeView === "terminal" && isHostPickerActive ? activeTerminal.id : undefined;
+    void openTerminalForHost(host, reusableTabId, { dedupeOpening: !reusableTabId });
+  }
+
   function renderHostCards(items: HostItem[]) {
     if (items.length === 0) {
       return <p className="empty-copy">{text.hosts.empty}</p>;
@@ -1382,7 +1406,7 @@ export function App() {
             onClick={() => selectHost(host.id)}
             onDoubleClick={(event) => {
               event.stopPropagation();
-              void openTerminalForHost(host, undefined, { dedupeOpening: true });
+              openHostFromHostList(host);
             }}
           >
             <span className={`host-card-icon host-row-icon--${tone}`}>
@@ -1425,11 +1449,11 @@ export function App() {
     });
   }
 
-  function renderHostsHome() {
+  function renderHostsHome(options: { embedded?: boolean } = {}) {
     const canConnectSelected = selectedHost.id !== "__placeholder" && selectedHost.status !== "connecting";
 
     return (
-      <section className="hosts-home" aria-label={text.hosts.sidebarTitle}>
+      <section className={`hosts-home ${options.embedded ? "hosts-home--embedded" : ""}`} aria-label={text.hosts.sidebarTitle}>
         <div className="hosts-home-toolbar">
           <label className="search-box hosts-home-search">
             <Search size={16} aria-hidden="true" />
@@ -1444,7 +1468,7 @@ export function App() {
             className="button button--compact"
             type="button"
             disabled={!canConnectSelected}
-            onClick={() => openTerminalForHost(selectedHost, undefined, { dedupeOpening: true })}
+            onClick={() => openHostFromHostList(selectedHost)}
           >
             <Play size={14} aria-hidden="true" />
             <span>{text.hosts.connectSelected}</span>
@@ -1460,7 +1484,7 @@ export function App() {
             className="button button--compact"
             type="button"
             disabled={!canConnectSelected}
-            onClick={() => openTerminalForHost(selectedHost, undefined, { dedupeOpening: true })}
+            onClick={() => openHostFromHostList(selectedHost)}
           >
             <Terminal size={15} aria-hidden="true" />
             <span>{text.terminal.tabLabel}</span>
@@ -1761,12 +1785,21 @@ export function App() {
       </aside>
 
       <section className="workspace">
-        {activeView !== "settings" ? (
-          <section className="workspace-view">
-            {activeView === "hosts" || terminalTabs.length === 0 ? (
-              renderHostsHome()
-            ) : (
-            <section className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""}`}>
+	        {activeView !== "settings" ? (
+	          <section className="workspace-view">
+	            {terminalTabs.length === 0 ? (
+	              renderHostsHome()
+	            ) : (
+	              <>
+	                <section className={`workspace-layer workspace-layer--hosts ${activeView === "hosts" ? "is-active" : ""}`}>
+	                  {renderHostsHome()}
+	                </section>
+	                <section className={`workspace-layer workspace-layer--terminal ${activeView === "terminal" ? "is-active" : ""}`}>
+	            <section
+	              className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""} ${
+	                isHostPickerActive ? "is-host-picker" : ""
+	              }`}
+	            >
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
                   <div className="terminal-tabs">
@@ -1776,10 +1809,10 @@ export function App() {
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
                       >
-                        <button className="terminal-tab-main" type="button" title={translate(tab.title, language)} onClick={() => setActiveTerminalTabId(tab.id)}>
-                          <Terminal size={14} aria-hidden="true" />
-                          <span>{translate(tab.title, language)}</span>
-                        </button>
+	                        <button className="terminal-tab-main" type="button" title={translate(tab.title, language)} onClick={() => setActiveTerminalTabId(tab.id)}>
+	                          {tab.kind === "hostPicker" ? <Plus size={14} aria-hidden="true" /> : <Terminal size={14} aria-hidden="true" />}
+	                          <span>{translate(tab.title, language)}</span>
+	                        </button>
                         <button
                           className="tab-close"
                           type="button"
@@ -1798,17 +1831,21 @@ export function App() {
                     <button
                       className="terminal-tab terminal-tab--add"
                       type="button"
-                      title={text.terminal.newTab}
-                      aria-label={text.terminal.newTab}
-                      onClick={openNewTerminalTab}
-                      disabled={newTerminalHost.id === "__placeholder"}
-                    >
-                      <Plus size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                  <div className="terminal-pane">
-                    <div className="terminal-toolbar">
-                      <span title={activeTerminalHostLabel}>{activeTerminalHostLabel}</span>
+	                      title={text.terminal.newTab}
+	                      aria-label={text.terminal.newTab}
+	                      onClick={openNewTerminalTab}
+	                    >
+	                      <Plus size={14} aria-hidden="true" />
+	                    </button>
+	                  </div>
+	                  <div className="terminal-content-stack">
+	                    <section className={`terminal-host-picker ${isHostPickerActive ? "is-active" : ""}`}>
+	                      {renderHostsHome({ embedded: true })}
+	                    </section>
+	                    <div className={`terminal-content-pane ${!isHostPickerActive ? "is-active" : ""}`}>
+	                  <div className="terminal-pane">
+	                    <div className="terminal-toolbar">
+	                      <span title={activeTerminalHostLabel}>{activeTerminalHostLabel}</span>
                       <div className="terminal-toolbar-actions">
                         <span>{text.terminal.mockBadge}</span>
                         <span className={`state-badge state-badge--${hostStatusTone[activeTerminal.status]}`}>
@@ -1853,17 +1890,20 @@ export function App() {
                         </div>
                       )}
                     </div>
-                    {terminalError || activeTerminal.error ? (
-                      <div className="terminal-status-line">
-                        <AlertTriangle size={14} aria-hidden="true" />
-                        <span>{terminalError ?? activeTerminal.error}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
+	                    {terminalError || activeTerminal.error ? (
+	                      <div className="terminal-status-line">
+	                        <AlertTriangle size={14} aria-hidden="true" />
+	                        <span>{terminalError ?? activeTerminal.error}</span>
+	                      </div>
+	                    ) : null}
+	                  </div>
+	                    </div>
+	                  </div>
+	                </section>
               </div>
 
-              <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
+	              {!isHostPickerActive ? (
+	              <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
                 {isToolDockCollapsed ? (
                   renderToolSideRail()
                 ) : (
@@ -1886,10 +1926,13 @@ export function App() {
                     </div>
                   </>
                 )}
-              </aside>
-            </section>
-            )}
-          </section>
+	              </aside>
+	              ) : null}
+	            </section>
+	                </section>
+	              </>
+	            )}
+	          </section>
         ) : (
           <section className="settings-shell">
             <aside className="settings-sidebar" aria-label={text.settings.sidebarTitle}>
@@ -2319,6 +2362,17 @@ function terminalDimensions(tabId: string, entries: Map<string, XTermEntry>): { 
 
 function createTerminalTabId(): string {
   return `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createHostPickerTabId(): string {
+  return `host_picker_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createHostPickerTitle(): LocalizedText {
+  return {
+    "zh-CN": "新标签页",
+    "en-US": "New Tab"
+  };
 }
 
 function splitTags(value: string): string[] {
