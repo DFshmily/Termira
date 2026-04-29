@@ -311,11 +311,11 @@ h2 {
 
 .host-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(64px, auto);
+  grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: var(--space-2);
   min-height: 54px;
-  padding: var(--space-2);
+  padding: 0 var(--space-2) 0 0;
   border: 1px solid transparent;
   border-radius: var(--radius-2);
   text-align: left;
@@ -327,6 +327,40 @@ h2 {
 .host-row.is-active {
   border-color: var(--color-border);
   background: var(--color-panel);
+}
+
+.host-row-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(54px, auto);
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: 52px;
+  padding: var(--space-2);
+  border: 0;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.host-row-edit {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.host-row-edit:hover {
+  color: var(--color-accent-strong);
+  border-color: rgba(66, 197, 173, 0.32);
+  background: rgba(66, 197, 173, 0.09);
+  opacity: 1;
 }
 
 .host-row-icon {

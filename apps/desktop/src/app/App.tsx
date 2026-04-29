@@ -25,6 +25,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Palette,
   Play,
   Plus,
@@ -247,7 +248,7 @@ const defaultHostForm: HostFormState = {
   defaultRemotePath: "",
   authType: "password",
   privateKeyPath: "",
-  saveCredential: false,
+  saveCredential: true,
   password: "",
   passphrase: "",
   favorite: false
@@ -456,6 +457,7 @@ export function App() {
   const [isHostLoading, setIsHostLoading] = useState(true);
   const [hostError, setHostError] = useState<string | null>(null);
   const [isHostEditorOpen, setIsHostEditorOpen] = useState(false);
+  const [editingHostId, setEditingHostId] = useState<string | null>(null);
   const [hostForm, setHostForm] = useState<HostFormState>(defaultHostForm);
   const [isSavingHost, setIsSavingHost] = useState(false);
   const [hostFormError, setHostFormError] = useState<string | null>(null);
@@ -757,12 +759,16 @@ export function App() {
     setHostFormError(null);
 
     try {
+      const editingProfile = editingHostId ? hostProfiles.find((profile) => profile.id === editingHostId) : undefined;
       const port = Number.parseInt(hostForm.port, 10);
       if (!hostForm.name.trim() || !hostForm.host.trim() || !hostForm.username.trim() || !Number.isInteger(port)) {
         throw new Error(text.hostEditor.validation);
       }
 
-      let credentialRef: string | undefined;
+      let credentialRef =
+        editingProfile?.auth.type === hostForm.authType && editingProfile.auth.credentialRef
+          ? editingProfile.auth.credentialRef
+          : undefined;
       const shouldSaveCredential =
         hostForm.saveCredential &&
         (hostForm.password.trim().length > 0 || hostForm.passphrase.trim().length > 0);
@@ -776,6 +782,7 @@ export function App() {
           throw new Error(text.hostEditor.vaultLocked);
         }
         const credential = await window.termira.invoke<{ credentialId: string }>("credential.save", {
+          credentialId: credentialRef,
           type: hostForm.authType,
           password: hostForm.authType === "privateKey" ? undefined : hostForm.password,
           passphrase: hostForm.authType === "privateKey" ? hostForm.passphrase : undefined,
@@ -785,7 +792,11 @@ export function App() {
         setVaultStatus(status);
       }
 
-      await window.termira.invoke<BackendHostProfile>("profile.create", {
+      if (!hostForm.saveCredential) {
+        credentialRef = undefined;
+      }
+
+      const profilePayload = {
         name: hostForm.name.trim(),
         host: hostForm.host.trim(),
         port,
@@ -801,9 +812,19 @@ export function App() {
           privateKeyPath: hostForm.authType === "privateKey" ? hostForm.privateKeyPath.trim() || undefined : undefined,
           saveCredential: Boolean(credentialRef)
         }
-      });
+      };
+
+      if (editingHostId) {
+        await window.termira.invoke<BackendHostProfile>("profile.update", {
+          id: editingHostId,
+          profile: profilePayload
+        });
+      } else {
+        await window.termira.invoke<BackendHostProfile>("profile.create", profilePayload);
+      }
 
       setHostForm(defaultHostForm);
+      setEditingHostId(null);
       setIsHostEditorOpen(false);
       await refreshProfiles();
       await refreshVaultStatus();
@@ -855,6 +876,25 @@ export function App() {
       ...current,
       [field]: value
     }));
+  }
+
+  function openCreateHostEditor() {
+    setEditingHostId(null);
+    setHostForm(defaultHostForm);
+    setHostFormError(null);
+    setIsHostEditorOpen(true);
+  }
+
+  function openEditHostEditor(hostId: string) {
+    const profile = hostProfiles.find((item) => item.id === hostId);
+    if (!profile) {
+      return;
+    }
+
+    setEditingHostId(profile.id);
+    setHostForm(profileToHostForm(profile));
+    setHostFormError(null);
+    setIsHostEditorOpen(true);
   }
 
   function selectHost(hostId: string) {
@@ -996,23 +1036,32 @@ export function App() {
       const tone = hostStatusTone[host.status];
 
       return (
-        <button
+        <div
           key={host.id}
           className={`host-row ${selectedHost.id === host.id ? "is-active" : ""}`}
-          type="button"
-          onClick={() => selectHost(host.id)}
         >
-          <span className={`host-row-icon host-row-icon--${tone}`}>
-            <Server size={15} aria-hidden="true" />
-          </span>
-          <span className="host-row-copy">
-            <strong title={translate(host.name, language)}>{translate(host.name, language)}</strong>
-            <small title={address}>{address}</small>
-          </span>
-          <span className={`host-row-status host-row-status--${tone}`} title={text.hosts.statusLabels[host.status]}>
-            {text.hosts.statusLabels[host.status]}
-          </span>
-        </button>
+          <button className="host-row-main" type="button" onClick={() => selectHost(host.id)}>
+            <span className={`host-row-icon host-row-icon--${tone}`}>
+              <Server size={15} aria-hidden="true" />
+            </span>
+            <span className="host-row-copy">
+              <strong title={translate(host.name, language)}>{translate(host.name, language)}</strong>
+              <small title={address}>{address}</small>
+            </span>
+            <span className={`host-row-status host-row-status--${tone}`} title={text.hosts.statusLabels[host.status]}>
+              {text.hosts.statusLabels[host.status]}
+            </span>
+          </button>
+          <button
+            className="host-row-edit"
+            type="button"
+            title={text.hosts.editHost}
+            aria-label={text.hosts.editHost}
+            onClick={() => openEditHostEditor(host.id)}
+          >
+            <Pencil size={13} aria-hidden="true" />
+          </button>
+        </div>
       );
     });
   }
@@ -1392,11 +1441,7 @@ export function App() {
             <button
               className="button button--accent navigator-action"
               type="button"
-              onClick={() => {
-                setHostForm(defaultHostForm);
-                setHostFormError(null);
-                setIsHostEditorOpen(true);
-              }}
+              onClick={openCreateHostEditor}
             >
               <Plus size={16} aria-hidden="true" />
               <span>{text.hosts.newHost}</span>
@@ -1697,14 +1742,17 @@ export function App() {
             <div className="modal-heading">
               <div>
                 <p className="eyebrow">{text.hostEditor.eyebrow}</p>
-                <h2>{text.hostEditor.title}</h2>
+                <h2>{editingHostId ? text.hostEditor.editTitle : text.hostEditor.title}</h2>
               </div>
               <button
                 className="icon-button"
                 type="button"
                 title={text.hostEditor.close}
                 aria-label={text.hostEditor.close}
-                onClick={() => setIsHostEditorOpen(false)}
+                onClick={() => {
+                  setIsHostEditorOpen(false);
+                  setEditingHostId(null);
+                }}
               >
                 <X size={14} aria-hidden="true" />
               </button>
@@ -1814,7 +1862,14 @@ export function App() {
             ) : null}
 
             <div className="modal-actions">
-              <button className="button" type="button" onClick={() => setIsHostEditorOpen(false)}>
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  setIsHostEditorOpen(false);
+                  setEditingHostId(null);
+                }}
+              >
                 <span>{text.hostEditor.cancel}</span>
               </button>
               <button className="button button--accent" type="submit" disabled={isSavingHost}>
@@ -1858,6 +1913,25 @@ function profileToHostItem(profile: BackendHostProfile, status: ConnectionState 
     favorite: profile.favorite,
     recent: Boolean(profile.lastConnectedAt),
     status
+  };
+}
+
+function profileToHostForm(profile: BackendHostProfile): HostFormState {
+  return {
+    name: profile.name,
+    host: profile.host,
+    port: String(profile.port),
+    username: profile.username,
+    groupName: profile.groupName ?? "",
+    tags: profile.tags.join(", "),
+    note: profile.note ?? "",
+    defaultRemotePath: profile.defaultRemotePath ?? "",
+    authType: profile.auth.type,
+    privateKeyPath: profile.auth.privateKeyPath ?? "",
+    saveCredential: profile.auth.saveCredential || Boolean(profile.auth.credentialRef) || profile.auth.type !== "privateKey",
+    password: "",
+    passphrase: "",
+    favorite: profile.favorite
   };
 }
 

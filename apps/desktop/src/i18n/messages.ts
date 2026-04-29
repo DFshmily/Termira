@@ -29,6 +29,7 @@ export const messages = {
       workspaceTitle: "主机",
       searchPlaceholder: "搜索主机、分组或账号",
       newHost: "新建主机",
+      editHost: "编辑主机",
       connect: "连接",
       disconnect: "断开",
       favorites: "收藏",
@@ -149,6 +150,7 @@ export const messages = {
     hostEditor: {
       eyebrow: "本地配置",
       title: "新建主机",
+      editTitle: "编辑主机",
       close: "关闭",
       name: "名称",
       group: "分组",
@@ -209,6 +211,7 @@ export const messages = {
       workspaceTitle: "Hosts",
       searchPlaceholder: "Search hosts, groups, or users",
       newHost: "New host",
+      editHost: "Edit host",
       connect: "Connect",
       disconnect: "Disconnect",
       favorites: "Favorites",
@@ -329,6 +332,7 @@ export const messages = {
     hostEditor: {
       eyebrow: "Local profile",
       title: "New host",
+      editTitle: "Edit host",
       close: "Close",
       name: "Name",
       group: "Group",
