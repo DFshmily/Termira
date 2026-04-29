@@ -9,10 +9,10 @@ let isQuitting = false;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1120,
-    height: 720,
-    minWidth: 860,
-    minHeight: 560,
+    width: 1440,
+    height: 900,
+    minWidth: 1120,
+    minHeight: 700,
     title: "Termira",
     backgroundColor: "#101112",
     show: false,

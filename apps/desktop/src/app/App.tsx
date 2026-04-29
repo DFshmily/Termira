@@ -801,7 +801,6 @@ export function App() {
     openingHostTabIdsRef.current.set(host.id, tabId);
     setSelectedHostId(host.id);
     setTerminalError(null);
-    pendingTerminalOutputRef.current.set(tabId, [`$ ssh -p ${host.port} ${formatHostAddress(host)}\r\n`]);
     const nextTabs = [...terminalTabsRef.current.filter((tab) => tab.id !== tabId), nextTab];
     terminalTabsRef.current = nextTabs;
     setTerminalTabs(nextTabs);
@@ -810,10 +809,6 @@ export function App() {
 
     const entry = xtermEntriesRef.current.get(tabId);
     entry?.terminal.reset();
-    if (entry) {
-      pendingTerminalOutputRef.current.delete(tabId);
-      entry.terminal.write(`$ ssh -p ${host.port} ${formatHostAddress(host)}\r\n`);
-    }
 
     try {
       const session = await window.termira.invoke<SshSessionView>("ssh.connect", { profileId: host.id });

@@ -1745,7 +1745,7 @@ h2 {
   animation: spin 1.1s linear infinite;
 }
 
-@media (max-width: 1260px) {
+@media (max-width: 960px) {
   .workbench-grid {
     grid-template-columns: 1fr;
   }
