@@ -81,7 +81,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 64px 300px minmax(0, 1fr);
   height: 100vh;
   min-height: 100vh;
   background: var(--color-bg);
@@ -89,7 +89,56 @@ button:disabled {
 }
 
 .app-shell.is-nav-collapsed {
-  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.app-shell.is-settings-view {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.app-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2);
+  border-right: 1px solid var(--color-border-soft);
+  background: #12161b;
+}
+
+.rail-brand,
+.rail-nav button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+
+.rail-brand {
+  border: 0;
+  color: #061412;
+  background: var(--color-accent);
+}
+
+.rail-nav {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+}
+
+.rail-nav button {
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  background: transparent;
+}
+
+.rail-nav button:hover,
+.rail-nav button.is-active {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: var(--color-panel-strong);
 }
 
 .navigator {
@@ -175,54 +224,6 @@ button:disabled {
 
 .app-shell.is-nav-collapsed .navigator-top {
   justify-content: center;
-}
-
-.app-shell.is-nav-collapsed .brand-lockup div,
-.app-shell.is-nav-collapsed .navigator-mode span,
-.app-shell.is-nav-collapsed .navigator > :not(.navigator-top):not(.navigator-mode) {
-  display: none;
-}
-
-.app-shell.is-nav-collapsed .brand-lockup {
-  display: none;
-}
-
-.navigator-mode {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--color-border-soft);
-  border-radius: var(--radius-2);
-  background: #11161b;
-}
-
-.navigator-mode button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-width: 0;
-  min-height: 32px;
-  border: 0;
-  border-radius: var(--radius-1);
-  color: var(--color-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.navigator-mode button:hover,
-.navigator-mode button.is-active {
-  color: var(--color-text);
-  background: var(--color-panel-strong);
-}
-
-.app-shell.is-nav-collapsed .navigator-mode {
-  grid-template-columns: 1fr;
-}
-
-.app-shell.is-nav-collapsed .navigator-mode button {
-  min-height: 38px;
 }
 
 .eyebrow {
@@ -398,32 +399,13 @@ h2 {
   color: var(--color-danger);
 }
 
-.settings-nav {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.settings-nav a {
-  min-height: 38px;
-  padding: 10px var(--space-3);
-  border-radius: var(--radius-2);
-  color: var(--color-text-muted);
-  text-decoration: none;
-}
-
-.settings-nav a:hover {
-  color: var(--color-text);
-  background: var(--color-panel);
-}
-
 .workspace {
   min-width: 0;
   height: 100vh;
   overflow: auto;
 }
 
-.workspace-view,
-.settings-grid {
+.workspace-view {
   display: grid;
   gap: var(--space-4);
   padding: var(--space-6);
@@ -438,7 +420,7 @@ h2 {
 
 .session-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 0.62fr) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
@@ -498,11 +480,15 @@ h2 {
 .workspace-tabs {
   display: flex;
   align-items: center;
+  justify-self: end;
+  gap: 2px;
   min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
+  padding: 3px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-2);
-  background: #151a20;
+  background: rgba(21, 26, 32, 0.72);
 }
 
 .workspace-tabs button {
@@ -511,29 +497,26 @@ h2 {
   justify-content: center;
   gap: var(--space-2);
   flex: 0 0 auto;
-  min-width: 72px;
+  min-width: 0;
   min-height: 32px;
   padding: 0 var(--space-3);
   border: 0;
-  border-right: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-1);
   color: var(--color-text-muted);
   background: transparent;
   cursor: pointer;
-}
-
-.workspace-tabs button:last-child {
-  border-right: 0;
 }
 
 .workspace-tabs button:hover,
 .workspace-tabs button.is-active,
 .workspace-tabs button.is-selected {
   color: var(--color-text);
-  background: var(--color-panel-strong);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .workspace-tabs button.is-selected {
   color: var(--color-accent-strong);
+  background: rgba(66, 197, 173, 0.12);
 }
 
 .split-actions {
@@ -591,6 +574,10 @@ h2 {
   grid-template-columns: minmax(520px, 1fr) minmax(340px, 384px);
   gap: 0;
   min-height: 0;
+}
+
+.workbench-grid.is-tool-collapsed {
+  grid-template-columns: minmax(520px, 1fr) 52px;
 }
 
 .terminal-column {
@@ -769,6 +756,12 @@ h2 {
   background: rgba(255, 255, 255, 0.07);
 }
 
+.icon-button.is-active {
+  color: var(--color-accent-strong);
+  border-color: rgba(66, 197, 173, 0.36);
+  background: rgba(66, 197, 173, 0.1);
+}
+
 .terminal-pane pre {
   min-height: 0;
   margin: 0;
@@ -795,6 +788,19 @@ h2 {
   box-shadow: none;
 }
 
+.tool-dock.is-collapsed {
+  grid-template-rows: minmax(0, 1fr);
+  background: #171d23;
+}
+
+.tool-collapsed-rail {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
 .tool-panel-heading {
   display: flex;
   align-items: flex-start;
@@ -803,6 +809,13 @@ h2 {
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border-soft);
   background: #151a20;
+}
+
+.tool-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
 }
 
 .tool-content {
@@ -1181,9 +1194,80 @@ h2 {
   display: block;
 }
 
-.settings-grid {
-  grid-template-columns: minmax(420px, 760px);
+.settings-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 760px);
   align-content: start;
+  gap: var(--space-5);
+  min-height: 100vh;
+  padding: var(--space-6);
+}
+
+.settings-sidebar {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-2);
+  background: #151a20;
+}
+
+.settings-sidebar-head strong,
+.settings-sidebar-head span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-sidebar-head strong {
+  font-size: 18px;
+}
+
+.settings-sidebar-head span {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.settings-sidebar nav {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settings-sidebar a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.settings-sidebar a:hover,
+.settings-sidebar a.is-active {
+  color: var(--color-text);
+  border-color: var(--color-border-soft);
+  background: var(--color-panel-strong);
+}
+
+.settings-sidebar a span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-content {
+  min-width: 0;
 }
 
 .workspace-panel {
@@ -1287,16 +1371,18 @@ h2 {
     overflow: auto;
   }
 
-  .app-shell {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
+  .app-shell,
+  .app-shell.is-settings-view,
   .app-shell.is-nav-collapsed {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 56px minmax(0, 1fr);
   }
 
   .navigator {
     display: none;
+  }
+
+  .app-rail {
+    padding: var(--space-3) var(--space-2);
   }
 
   .workspace {
@@ -1305,7 +1391,7 @@ h2 {
   }
 
   .workspace-view,
-  .settings-grid {
+  .settings-shell {
     padding: var(--space-4);
   }
 
@@ -1329,7 +1415,7 @@ h2 {
     flex-direction: column;
   }
 
-  .settings-grid,
+  .settings-shell,
   .setting-row {
     grid-template-columns: 1fr;
   }
@@ -1341,13 +1427,25 @@ h2 {
 }
 
 @media (max-width: 720px) {
-  .app-shell {
-    grid-template-columns: minmax(0, 1fr);
+  .app-shell,
+  .app-shell.is-settings-view,
+  .app-shell.is-nav-collapsed {
+    grid-template-columns: 52px minmax(0, 1fr);
   }
 
   .workspace-view,
-  .settings-grid {
+  .settings-shell {
     padding: var(--space-3);
+  }
+
+  .app-rail {
+    padding: var(--space-3) 6px;
+  }
+
+  .rail-brand,
+  .rail-nav button {
+    width: 36px;
+    height: 36px;
   }
 
   .workspace-view {

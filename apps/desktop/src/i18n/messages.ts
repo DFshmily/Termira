@@ -87,6 +87,8 @@ export const messages = {
     tools: {
       title: "工具区",
       eyebrow: "会话工具",
+      collapsePanel: "折叠工具面板",
+      expandPanel: "展开工具面板",
       files: {
         toolbar: "文件工具栏",
         list: "远程文件",
@@ -135,6 +137,9 @@ export const messages = {
     settings: {
       sidebarTitle: "设置",
       preferences: "偏好设置",
+      general: "通用",
+      appearance: "外观",
+      security: "安全",
       eyebrow: "偏好设置",
       title: "语言",
       description: "Termira 默认使用中文界面，同时保留英文界面用于后续国际化。",
@@ -216,6 +221,8 @@ export const messages = {
     tools: {
       title: "Tool area",
       eyebrow: "Session tools",
+      collapsePanel: "Collapse tool panel",
+      expandPanel: "Expand tool panel",
       files: {
         toolbar: "File toolbar",
         list: "Remote files",
@@ -264,6 +271,9 @@ export const messages = {
     settings: {
       sidebarTitle: "Settings",
       preferences: "Preferences",
+      general: "General",
+      appearance: "Appearance",
+      security: "Security",
       eyebrow: "Preferences",
       title: "Language",
       description: "Termira uses Chinese by default while keeping English available for future localization.",

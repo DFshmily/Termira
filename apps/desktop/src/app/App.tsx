@@ -19,12 +19,17 @@ import {
   Network,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Palette,
   Play,
   Plus,
   RefreshCcw,
   Search,
   Server,
   Settings,
+  ShieldCheck,
+  SlidersHorizontal,
   Square,
   Star,
   Terminal,
@@ -404,6 +409,7 @@ export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("hosts");
   const [activeTool, setActiveTool] = useState<ToolPanelId>("files");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
   const [processSearch, setProcessSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState(hosts[0].id);
@@ -791,8 +797,52 @@ export function App() {
   }
 
   return (
-    <main className={`app-shell ${isSidebarCollapsed ? "is-nav-collapsed" : ""}`}>
-      <aside className="navigator">
+    <main
+      className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
+        isSidebarCollapsed ? "is-nav-collapsed" : ""
+      }`}
+    >
+      <aside className="app-rail" aria-label={text.navigation.workspace}>
+        <button
+          className="rail-brand"
+          type="button"
+          title={text.navigation.hosts}
+          aria-label={text.navigation.hosts}
+          onClick={() => {
+            setActiveView("hosts");
+            setIsSidebarCollapsed(false);
+          }}
+        >
+          <Terminal size={20} aria-hidden="true" />
+        </button>
+
+        <nav className="rail-nav" aria-label={text.navigation.workspace}>
+          <button
+            className={activeView === "hosts" ? "is-active" : undefined}
+            type="button"
+            title={text.navigation.hosts}
+            aria-label={text.navigation.hosts}
+            onClick={() => {
+              setActiveView("hosts");
+              setIsSidebarCollapsed(false);
+            }}
+          >
+            <Server size={18} aria-hidden="true" />
+          </button>
+          <button
+            className={activeView === "settings" ? "is-active" : undefined}
+            type="button"
+            title={text.navigation.settings}
+            aria-label={text.navigation.settings}
+            onClick={() => setActiveView("settings")}
+          >
+            <Settings size={18} aria-hidden="true" />
+          </button>
+        </nav>
+      </aside>
+
+      {activeView === "hosts" && !isSidebarCollapsed ? (
+        <aside className="navigator">
         <div className="navigator-top">
           <div className="brand-lockup">
             <span className="brand-mark-small">
@@ -800,43 +850,20 @@ export function App() {
             </span>
             <div>
               <strong>Termira</strong>
-              <small>{activeView === "hosts" ? text.hosts.sidebarTitle : text.settings.sidebarTitle}</small>
+              <small>{text.hosts.sidebarTitle}</small>
             </div>
           </div>
           <button
             className="nav-collapse-button"
             type="button"
-            title={isSidebarCollapsed ? text.navigation.expandSidebar : text.navigation.collapseSidebar}
-            aria-label={isSidebarCollapsed ? text.navigation.expandSidebar : text.navigation.collapseSidebar}
+            title={text.navigation.collapseSidebar}
+            aria-label={text.navigation.collapseSidebar}
             onClick={() => setIsSidebarCollapsed((current) => !current)}
           >
-            {isSidebarCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+            <PanelLeftClose size={16} aria-hidden="true" />
           </button>
         </div>
 
-        <div className="navigator-mode" aria-label={text.navigation.workspace}>
-          <button
-            className={activeView === "hosts" ? "is-active" : undefined}
-            type="button"
-            title={text.navigation.hosts}
-            onClick={() => setActiveView("hosts")}
-          >
-            <Server size={15} aria-hidden="true" />
-            <span>{text.navigation.hosts}</span>
-          </button>
-          <button
-            className={activeView === "settings" ? "is-active" : undefined}
-            type="button"
-            title={text.navigation.settings}
-            onClick={() => setActiveView("settings")}
-          >
-            <Settings size={15} aria-hidden="true" />
-            <span>{text.navigation.settings}</span>
-          </button>
-        </div>
-
-        {activeView === "hosts" ? (
-          <>
             <label className="search-box">
               <Search size={16} aria-hidden="true" />
               <input
@@ -877,15 +904,8 @@ export function App() {
                 {renderHostRows(visibleHosts, text.hosts.empty)}
               </section>
             </nav>
-          </>
-        ) : (
-          <>
-            <nav className="settings-nav" aria-label={text.settings.sidebarTitle}>
-              <a href="#preferences">{text.settings.preferences}</a>
-            </nav>
-          </>
-        )}
-      </aside>
+        </aside>
+      ) : null}
 
       <section className="workspace">
         {activeView === "hosts" ? (
@@ -922,7 +942,7 @@ export function App() {
               </nav>
             </header>
 
-            <section className="workbench-grid">
+            <section className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""}`}>
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
                   <div className="terminal-tabs">
@@ -994,37 +1014,104 @@ export function App() {
                 </section>
               </div>
 
-              <aside className="tool-dock" aria-label={text.tools.title}>
-                <div className="tool-panel-heading">
-                  <div>
-                    <p className="eyebrow">{text.tools.eyebrow}</p>
-                    <h2>{translate(activeToolDefinition.label, language)}</h2>
+              <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
+                {isToolDockCollapsed ? (
+                  <div className="tool-collapsed-rail">
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title={text.tools.expandPanel}
+                      aria-label={text.tools.expandPanel}
+                      onClick={() => setIsToolDockCollapsed(false)}
+                    >
+                      <PanelRightOpen size={15} aria-hidden="true" />
+                    </button>
+                    {toolDefinitions.map((tool) => {
+                      const Icon = tool.icon;
+                      return (
+                        <button
+                          key={tool.id}
+                          className={`icon-button ${activeTool === tool.id ? "is-active" : ""}`}
+                          type="button"
+                          title={translate(tool.label, language)}
+                          aria-label={translate(tool.label, language)}
+                          onClick={() => {
+                            setActiveTool(tool.id);
+                            setIsToolDockCollapsed(false);
+                          }}
+                        >
+                          <Icon size={15} aria-hidden="true" />
+                        </button>
+                      );
+                    })}
                   </div>
-                  <span className={`state-badge state-badge--${hostStatusTone[selectedHost.status]}`}>
-                    {text.hosts.statusLabels[selectedHost.status]}
-                  </span>
-                </div>
+                ) : (
+                  <>
+                    <div className="tool-panel-heading">
+                      <div>
+                        <p className="eyebrow">{text.tools.eyebrow}</p>
+                        <h2>{translate(activeToolDefinition.label, language)}</h2>
+                      </div>
+                      <div className="tool-panel-actions">
+                        <span className={`state-badge state-badge--${hostStatusTone[selectedHost.status]}`}>
+                          {text.hosts.statusLabels[selectedHost.status]}
+                        </span>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title={text.tools.collapsePanel}
+                          aria-label={text.tools.collapsePanel}
+                          onClick={() => setIsToolDockCollapsed(true)}
+                        >
+                          <PanelRightClose size={15} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
 
-                {renderActiveToolPanel()}
+                    {renderActiveToolPanel()}
+                  </>
+                )}
               </aside>
             </section>
           </section>
         ) : (
-          <section className="settings-grid">
-            <div className="workspace-panel" id="preferences">
-              <div className="panel-heading">
+          <section className="settings-shell">
+            <aside className="settings-sidebar" aria-label={text.settings.sidebarTitle}>
+              <div className="settings-sidebar-head">
+                <strong>{text.settings.sidebarTitle}</strong>
+                <span>{text.settings.preferences}</span>
+              </div>
+              <nav>
+                <a className="is-active" href="#preferences">
+                  <SlidersHorizontal size={16} aria-hidden="true" />
+                  <span>{text.settings.general}</span>
+                </a>
+                <a href="#appearance">
+                  <Palette size={16} aria-hidden="true" />
+                  <span>{text.settings.appearance}</span>
+                </a>
+                <a href="#security">
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  <span>{text.settings.security}</span>
+                </a>
+              </nav>
+            </aside>
+
+            <section className="settings-content">
+              <div className="workspace-panel" id="preferences">
+                <div className="panel-heading">
                 <div>
                   <p className="eyebrow">{text.settings.eyebrow}</p>
                   <h2>{text.settings.title}</h2>
                 </div>
-              </div>
+                </div>
 
-              <div className="setting-row">
+                <div className="setting-row">
                 <div>
                   <span>{text.settings.currentLanguage}</span>
                   <p>{text.settings.description}</p>
                 </div>
-                <div className="language-switch" aria-label={text.language.label}>
+                  <div className="language-switch" aria-label={text.language.label}>
                   {LANGUAGE_OPTIONS.map((option) => (
                     <button
                       key={option.value}
@@ -1036,9 +1123,10 @@ export function App() {
                       {option.label}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            </section>
           </section>
         )}
       </section>
