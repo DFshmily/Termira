@@ -5,7 +5,6 @@ import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
   BarChart3,
-  Clock,
   Command,
   Cpu,
   Folder,
@@ -16,8 +15,6 @@ import {
   Lock,
   Maximize2,
   Network,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
@@ -30,7 +27,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Square,
-  Star,
   Terminal,
   Trash2,
   Unlock,
@@ -47,7 +43,7 @@ import {
 } from "../i18n/messages";
 import type { FormEvent } from "react";
 
-type ActiveView = "hosts" | "settings";
+type ActiveView = "hosts" | "terminal" | "settings";
 type ToolPanelId = "files" | "forwards" | "monitor" | "processes" | "commands";
 type ConnectionState = "connected" | "connecting" | "disconnected" | "failed" | "timeout";
 type StatusTone = "good" | "warn" | "bad" | "muted";
@@ -250,7 +246,6 @@ export function App() {
   });
   const [activeView, setActiveView] = useState<ActiveView>("hosts");
   const [activeTool, setActiveTool] = useState<ToolPanelId>("files");
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
   const [hostSearch, setHostSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
@@ -272,6 +267,7 @@ export function App() {
 
   const text = getMessages(language);
   const terminalTabsRef = useRef<TerminalSession[]>([]);
+  const openingHostTabIdsRef = useRef<Map<string, string>>(new Map());
   const xtermEntriesRef = useRef<Map<string, XTermEntry>>(new Map());
   const pendingTerminalOutputRef = useRef<Map<string, string[]>>(new Map());
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
@@ -295,15 +291,8 @@ export function App() {
   const activeTerminalHostLabel = activeTerminalHost.id === "__placeholder" ? text.terminal.noHost : formatHostAddress(activeTerminalHost);
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
 
-  const favoriteHosts = useMemo(() => hosts.filter((host) => host.favorite), [hosts]);
-  const recentHosts = useMemo(() => hosts.filter((host) => host.recent), [hosts]);
   const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
-  const visibleFavoriteHosts = useMemo(
-    () => filterHosts(favoriteHosts, hostSearch, language),
-    [favoriteHosts, hostSearch, language]
-  );
-  const visibleRecentHosts = useMemo(() => filterHosts(recentHosts, hostSearch, language), [recentHosts, hostSearch, language]);
-  const isHostsHome = activeView === "hosts" && terminalTabs.length === 0;
+  const isHostsHome = activeView === "hosts";
   const fitAndResizeTerminal = useCallback((tabId: string) => {
     const entry = xtermEntriesRef.current.get(tabId);
     if (!entry) {
@@ -428,6 +417,12 @@ export function App() {
   }, [activeTerminalTabId, terminalTabs]);
 
   useEffect(() => {
+    if (activeView === "terminal" && terminalTabs.length === 0) {
+      setActiveView("hosts");
+    }
+  }, [activeView, terminalTabs.length]);
+
+  useEffect(() => {
     const onOutput = (payload: unknown) => {
       const output = payload as Partial<TerminalOutputPayload>;
       if (typeof output.sessionId !== "string" || typeof output.channelId !== "string" || typeof output.data !== "string") {
@@ -513,7 +508,7 @@ export function App() {
     resizeActiveTerminal();
 
     return () => window.removeEventListener("resize", resizeActiveTerminal);
-  }, [activeTerminal.id, fitAndResizeTerminal, isSidebarCollapsed, isToolDockCollapsed]);
+  }, [activeTerminal.id, fitAndResizeTerminal, isToolDockCollapsed]);
 
   useEffect(
     () => () => {
@@ -718,7 +713,12 @@ export function App() {
         }
         disposeTerminal(tab.id);
       }
-      setTerminalTabs((current) => current.filter((tab) => tab.hostId !== host.id));
+      const remainingTabs = terminalTabsRef.current.filter((tab) => tab.hostId !== host.id);
+      terminalTabsRef.current = remainingTabs;
+      setTerminalTabs(remainingTabs);
+      if (remainingTabs.length === 0) {
+        setActiveView("hosts");
+      }
       if (selectedHostId === host.id) {
         setSelectedHostId("");
       }
@@ -746,9 +746,13 @@ export function App() {
     disposeTerminal(tabId);
 
     const nextTabs = terminalTabs.filter((item) => item.id !== tabId);
+    terminalTabsRef.current = nextTabs;
     setTerminalTabs(nextTabs);
     if (activeTerminalTabId === tabId) {
       setActiveTerminalTabId(nextTabs[0]?.id ?? "tab-preview");
+    }
+    if (nextTabs.length === 0) {
+      setActiveView("hosts");
     }
   }
 
@@ -757,9 +761,19 @@ export function App() {
       return;
     }
 
-    const connectedTab = terminalTabsRef.current.find((tab) => tab.hostId === host.id && tab.status === "connected");
-    if (!existingTabId && connectedTab) {
-      setActiveTerminalTabId(connectedTab.id);
+    const existingLiveTab = terminalTabsRef.current.find(
+      (tab) => tab.hostId === host.id && (tab.status === "connected" || tab.status === "connecting")
+    );
+    if (!existingTabId && existingLiveTab) {
+      setActiveTerminalTabId(existingLiveTab.id);
+      setActiveView("terminal");
+      return;
+    }
+
+    const openingTabId = openingHostTabIdsRef.current.get(host.id);
+    if (!existingTabId && openingTabId) {
+      setActiveTerminalTabId(openingTabId);
+      setActiveView("terminal");
       return;
     }
 
@@ -784,13 +798,15 @@ export function App() {
       status: "connecting"
     };
 
+    openingHostTabIdsRef.current.set(host.id, tabId);
+    setSelectedHostId(host.id);
     setTerminalError(null);
     pendingTerminalOutputRef.current.set(tabId, [`$ ssh -p ${host.port} ${formatHostAddress(host)}\r\n`]);
-    setTerminalTabs((current) => {
-      const rest = current.filter((tab) => tab.id !== tabId);
-      return [...rest, nextTab];
-    });
+    const nextTabs = [...terminalTabsRef.current.filter((tab) => tab.id !== tabId), nextTab];
+    terminalTabsRef.current = nextTabs;
+    setTerminalTabs(nextTabs);
     setActiveTerminalTabId(tabId);
+    setActiveView("terminal");
 
     const entry = xtermEntriesRef.current.get(tabId);
     entry?.terminal.reset();
@@ -809,8 +825,8 @@ export function App() {
         term: "xterm-256color"
       });
 
-      setTerminalTabs((current) =>
-        current.map((tab) =>
+      setTerminalTabs((current) => {
+        const updated: TerminalSession[] = current.map((tab) =>
           tab.id === tabId
             ? {
                 ...tab,
@@ -820,14 +836,16 @@ export function App() {
                 error: undefined
               }
             : tab
-        )
-      );
+        );
+        terminalTabsRef.current = updated;
+        return updated;
+      });
       fitAndResizeTerminal(tabId);
     } catch (error) {
       const message = errorMessage(error);
       setTerminalError(message);
-      setTerminalTabs((current) =>
-        current.map((tab) =>
+      setTerminalTabs((current) => {
+        const updated: TerminalSession[] = current.map((tab) =>
           tab.id === tabId
             ? {
                 ...tab,
@@ -835,9 +853,15 @@ export function App() {
                 error: message
               }
             : tab
-        )
-      );
+        );
+        terminalTabsRef.current = updated;
+        return updated;
+      });
       xtermEntriesRef.current.get(tabId)?.terminal.writeln(`\r\n${message}`);
+    } finally {
+      if (openingHostTabIdsRef.current.get(host.id) === tabId) {
+        openingHostTabIdsRef.current.delete(host.id);
+      }
     }
   }
 
@@ -854,16 +878,18 @@ export function App() {
       return;
     }
     setTerminalError(null);
-    setTerminalTabs((current) =>
-      current.map((tab) =>
+    setTerminalTabs((current) => {
+      const updated: TerminalSession[] = current.map((tab) =>
         tab.id === activeTerminal.id
           ? {
               ...tab,
               status: "disconnected"
             }
           : tab
-      )
-    );
+      );
+      terminalTabsRef.current = updated;
+      return updated;
+    });
     try {
       if (activeTerminal.channelId) {
         await window.termira.invoke("terminal.close", {
@@ -894,63 +920,6 @@ export function App() {
     }
   }
 
-  function renderHostRows(items: HostItem[], emptyText: string) {
-    if (items.length === 0) {
-      return <p className="empty-copy">{emptyText}</p>;
-    }
-
-    return items.map((host) => {
-      const address = formatHostAddress(host);
-      const tone = hostStatusTone[host.status];
-
-      return (
-        <div
-          key={host.id}
-          className={`host-row ${selectedHostId === host.id ? "is-active" : ""}`}
-        >
-          <button
-            className="host-row-main"
-            type="button"
-            title={text.hosts.doubleClickConnect}
-            onClick={() => selectHost(host.id)}
-            onDoubleClick={() => openTerminalForHost(host)}
-          >
-            <span className={`host-row-icon host-row-icon--${tone}`}>
-              <Server size={15} aria-hidden="true" />
-            </span>
-            <span className="host-row-copy">
-              <strong title={translate(host.name, language)}>{translate(host.name, language)}</strong>
-              <small title={address}>{address}</small>
-            </span>
-            <span className={`host-row-status host-row-status--${tone}`} title={text.hosts.statusLabels[host.status]}>
-              {text.hosts.statusLabels[host.status]}
-            </span>
-          </button>
-          <span className="host-row-actions">
-            <button
-              className="host-row-action"
-              type="button"
-              title={text.hosts.editHost}
-              aria-label={text.hosts.editHost}
-              onClick={() => openEditHostEditor(host.id)}
-            >
-              <Pencil size={13} aria-hidden="true" />
-            </button>
-            <button
-              className="host-row-action host-row-action--danger"
-              type="button"
-              title={text.hosts.deleteHost}
-              aria-label={text.hosts.deleteHost}
-              onClick={() => void deleteHost(host)}
-            >
-              <Trash2 size={13} aria-hidden="true" />
-            </button>
-          </span>
-        </div>
-      );
-    });
-  }
-
   function renderHostCards(items: HostItem[]) {
     if (items.length === 0) {
       return <p className="empty-copy">{text.hosts.empty}</p>;
@@ -965,15 +934,16 @@ export function App() {
         <article
           key={host.id}
           className={`host-card ${isSelected ? "is-active" : ""}`}
-          onClick={() => selectHost(host.id)}
-          onDoubleClick={() => openTerminalForHost(host)}
         >
           <button
             className="host-card-main"
             type="button"
             title={text.hosts.doubleClickConnect}
             onClick={() => selectHost(host.id)}
-            onDoubleClick={() => openTerminalForHost(host)}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              void openTerminalForHost(host);
+            }}
           >
             <span className={`host-card-icon host-row-icon--${tone}`}>
               <Server size={18} aria-hidden="true" />
@@ -1046,6 +1016,19 @@ export function App() {
             <span>{text.terminal.tabLabel}</span>
           </button>
         </div>
+
+        {isHostLoading ? (
+          <div className="inline-state">
+            <Loader2 className="spin-icon" size={15} aria-hidden="true" />
+            <span>{text.hosts.loading}</span>
+          </div>
+        ) : null}
+        {hostError ? (
+          <div className="inline-state inline-state--error">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{hostError}</span>
+          </div>
+        ) : null}
 
         <section className="hosts-home-board">
           <div className="hosts-home-heading">
@@ -1200,19 +1183,16 @@ export function App() {
       <main
       className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
         isHostsHome ? "is-hosts-home" : ""
-      } ${
-        isSidebarCollapsed ? "is-nav-collapsed" : ""
       }`}
     >
       <aside className="app-rail" aria-label={text.navigation.workspace}>
         <button
           className="rail-brand"
           type="button"
-          title={text.navigation.hosts}
-          aria-label={text.navigation.hosts}
+          title={text.terminal.title}
+          aria-label={text.terminal.title}
           onClick={() => {
-            setActiveView("hosts");
-            setIsSidebarCollapsed(false);
+            setActiveView(terminalTabs.length > 0 ? "terminal" : "hosts");
           }}
         >
           <Terminal size={20} aria-hidden="true" />
@@ -1226,7 +1206,6 @@ export function App() {
             aria-label={text.navigation.hosts}
             onClick={() => {
               setActiveView("hosts");
-              setIsSidebarCollapsed(false);
             }}
           >
             <Server size={18} aria-hidden="true" />
@@ -1243,93 +1222,10 @@ export function App() {
         </nav>
       </aside>
 
-      {activeView === "hosts" && !isSidebarCollapsed && !isHostsHome ? (
-        <aside className="navigator">
-        <div className="navigator-top">
-          <div className="brand-lockup">
-            <span className="brand-mark-small">
-              <Terminal size={18} aria-hidden="true" />
-            </span>
-            <div>
-              <strong>Termira</strong>
-              <small>{text.hosts.sidebarTitle}</small>
-            </div>
-          </div>
-          <button
-            className="nav-collapse-button"
-            type="button"
-            title={text.navigation.collapseSidebar}
-            aria-label={text.navigation.collapseSidebar}
-            onClick={() => setIsSidebarCollapsed((current) => !current)}
-          >
-            <PanelLeftClose size={16} aria-hidden="true" />
-          </button>
-        </div>
-
-            <label className="search-box">
-              <Search size={16} aria-hidden="true" />
-              <input
-                type="search"
-                value={hostSearch}
-                placeholder={text.hosts.searchPlaceholder}
-                onChange={(event) => setHostSearch(event.target.value)}
-              />
-            </label>
-
-            <button
-              className="button button--accent navigator-action"
-              type="button"
-              onClick={openCreateHostEditor}
-            >
-              <Plus size={16} aria-hidden="true" />
-              <span>{text.hosts.newHost}</span>
-            </button>
-
-            {isHostLoading ? (
-              <div className="inline-state">
-                <Loader2 className="spin-icon" size={15} aria-hidden="true" />
-                <span>{text.hosts.loading}</span>
-              </div>
-            ) : null}
-            {hostError ? (
-              <div className="inline-state inline-state--error">
-                <AlertTriangle size={15} aria-hidden="true" />
-                <span>{hostError}</span>
-              </div>
-            ) : null}
-
-            <nav className="host-sections" aria-label={text.hosts.sidebarTitle}>
-              <section className="host-section">
-                <div className="section-title">
-                  <Star size={14} aria-hidden="true" />
-                  <span>{text.hosts.favorites}</span>
-                </div>
-                {renderHostRows(visibleFavoriteHosts, text.hosts.empty)}
-              </section>
-
-              <section className="host-section">
-                <div className="section-title">
-                  <Clock size={14} aria-hidden="true" />
-                  <span>{text.hosts.recent}</span>
-                </div>
-                {renderHostRows(visibleRecentHosts, text.hosts.empty)}
-              </section>
-
-              <section className="host-section">
-                <div className="section-title">
-                  <Folder size={14} aria-hidden="true" />
-                  <span>{text.hosts.allHosts}</span>
-                </div>
-                {renderHostRows(visibleHosts, text.hosts.empty)}
-              </section>
-            </nav>
-        </aside>
-      ) : null}
-
       <section className="workspace">
-        {activeView === "hosts" ? (
+        {activeView !== "settings" ? (
           <section className="workspace-view">
-            {terminalTabs.length === 0 ? (
+            {activeView === "hosts" || terminalTabs.length === 0 ? (
               renderHostsHome()
             ) : (
             <section className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""}`}>

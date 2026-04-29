@@ -81,7 +81,7 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 64px 300px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   height: 100vh;
   min-height: 100vh;
   background: var(--color-bg);

@@ -52,6 +52,9 @@
 - 软件启动默认进入主机首页，主体区域展示主机卡片网格；未选择主机时不展示隐式地址，也不会自动选中第一台主机。
 - 主机首页隐藏重复的主机侧栏，只保留最左侧功能栏，避免主机列表在首页出现两次。
 - 主机首页卡片支持单击选中、双击连接，连接后才进入终端工作台。
+- 主机首页和终端工作台已拆分为独立视图：点击主机入口始终回到全部主机卡片页，点击终端入口回到已有终端会话。
+- 已移除终端工作台左侧重复主机列表，避免主页卡片和侧栏主机列表同时出现。
+- 双击连接增加事件冒泡隔离和连接中去重锁，防止一次双击创建两个终端标签或两条 SSH 连接。
 - xterm `onData` 调用 `terminal.write`。
 - `terminal.output` 事件直接写入对应 xterm 实例。
 - 窗口 resize、侧栏折叠和工具区折叠会触发 fit，并 debounce 调用 `terminal.resize`。
@@ -79,6 +82,7 @@
 - `npm run test -w packages/shared`：通过。
 - `npm run typecheck -w apps/desktop`：通过。
 - `mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml test`：通过，E2E 在未提供环境变量时跳过。
+- `TERMIRA_E2E_SSH_*` 注入真实服务器参数后运行 `SshSessionManagerE2ETest`：通过。
 - `npm test`：通过。
 - `npm run build`：通过。
 
@@ -89,6 +93,7 @@
 - 验证项：密码登录、打开交互 shell、执行 `whoami`/`pwd`/`ls` 相关命令、接收输出、PTY resize、关闭 channel、断开 session。
 - 结果：通过。
 - 认证失败验证：使用错误密码连接同一服务器，返回 `SSH_AUTH_FAILED`，通过。
+- 回归修复：SSHJ 将错误密码包装为认证相关 `TransportException` 时，也会稳定映射为 `SSH_AUTH_FAILED`。
 
 ## 当前边界
 

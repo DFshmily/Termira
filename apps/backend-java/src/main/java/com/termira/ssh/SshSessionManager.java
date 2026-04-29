@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.common.DisconnectReason;
 import net.schmizz.sshj.common.SSHException;
 import net.schmizz.sshj.transport.TransportException;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
@@ -331,9 +333,9 @@ public final class SshSessionManager implements AutoCloseable {
         eventSink.emit(IpcEvent.create("ssh.statusChanged", handle.view()));
     }
 
-    private AppError mapConnectError(Exception error) {
+    AppError mapConnectError(Exception error) {
         Throwable cause = rootCause(error);
-        if (error instanceof UserAuthException || cause instanceof UserAuthException) {
+        if (isAuthenticationError(error)) {
             return new AppError(ErrorCode.SSH_AUTH_FAILED, "Authentication failed.");
         }
         if (cause instanceof SocketTimeoutException) {
@@ -358,6 +360,35 @@ public final class SshSessionManager implements AutoCloseable {
             current = current.getCause();
         }
         return current;
+    }
+
+    private boolean isAuthenticationError(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof UserAuthException) {
+                return true;
+            }
+            if (current instanceof SSHException sshException && isAuthenticationDisconnect(sshException.getDisconnectReason())) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(Locale.ROOT);
+                if (normalized.contains("auth")
+                        || normalized.contains("permission denied")
+                        || normalized.contains("no more auth methods")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isAuthenticationDisconnect(DisconnectReason reason) {
+        return reason == DisconnectReason.AUTH_CANCELLED_BY_USER
+                || reason == DisconnectReason.NO_MORE_AUTH_METHODS_AVAILABLE
+                || reason == DisconnectReason.ILLEGAL_USER_NAME;
     }
 
     private AppError validation(String message, String field) {
