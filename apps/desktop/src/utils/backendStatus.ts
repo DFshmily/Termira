@@ -37,5 +37,6 @@ export function getBackendStateTone(state: BackendState): "good" | "warn" | "bad
 }
 
 function assertNever(value: never, language: AppLanguage = DEFAULT_LANGUAGE): never {
-  throw new Error(getMessages(language).errors.unhandledBackendState(value));
+  const message = language === "en-US" ? `Unhandled state: ${String(value)}` : `未处理的状态: ${String(value)}`;
+  throw new Error(message);
 }

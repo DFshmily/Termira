@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Activity,
   AlertTriangle,
   BarChart3,
   CheckCircle2,
@@ -14,14 +13,14 @@ import {
   FolderOpen,
   Gauge,
   HardDrive,
-  KeyRound,
   Loader2,
   Maximize2,
   MoreHorizontal,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Plus,
-  Power,
   RefreshCcw,
   Search,
   Server,
@@ -30,29 +29,17 @@ import {
   Star,
   Terminal,
   Upload,
-  Wifi,
-  WifiOff,
   X,
   Zap
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { BackendStatus, PingResult } from "@termira/shared";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
   isAppLanguage,
   LANGUAGE_OPTIONS,
-  type AppLanguage,
-  type AppMessages
+  type AppLanguage
 } from "../i18n/messages";
-import { formatBackendState, getBackendStateTone } from "../utils/backendStatus";
-
-type TimelineEntry = {
-  id: string;
-  label: string;
-  detail: string;
-  timestamp: string;
-};
 
 type ActiveView = "hosts" | "settings";
 type ToolPanelId = "files" | "forwards" | "monitor" | "processes" | "commands";
@@ -146,40 +133,6 @@ type QuickCommand = {
   disabled?: boolean;
 };
 
-const initialStatus: BackendStatus = {
-  state: "starting",
-  logDir: ""
-};
-
-const browserPreviewBridge: Window["termira"] = {
-  async invoke<TResult = unknown>(method: string): Promise<TResult> {
-    if (method === "app.getBackendStatus") {
-      return {
-        state: "offline",
-        logDir: "renderer preview",
-        lastError: "Electron preload is not attached in browser preview."
-      } satisfies BackendStatus as TResult;
-    }
-
-    if (method === "app.ping") {
-      return {
-        protocolVersion: "preview",
-        backendVersion: "preview",
-        message: "pong",
-        timestamp: new Date().toISOString()
-      } satisfies PingResult as TResult;
-    }
-
-    return { accepted: true } as TResult;
-  },
-  on() {
-    return undefined;
-  },
-  off() {
-    return undefined;
-  }
-};
-
 const LANGUAGE_STORAGE_KEY = "termira.ui.language";
 
 const hosts: HostItem[] = [
@@ -260,7 +213,7 @@ const hosts: HostItem[] = [
 ];
 
 const toolDefinitions: ToolDefinition[] = [
-  { id: "files", label: { "zh-CN": "文件", "en-US": "Files" }, icon: FolderOpen },
+  { id: "files", label: { "zh-CN": "SFTP", "en-US": "SFTP" }, icon: FolderOpen },
   { id: "forwards", label: { "zh-CN": "转发", "en-US": "Forwarding" }, icon: Network },
   { id: "monitor", label: { "zh-CN": "监控", "en-US": "Monitor" }, icon: BarChart3 },
   { id: "processes", label: { "zh-CN": "进程", "en-US": "Processes" }, icon: Cpu },
@@ -444,29 +397,23 @@ const hostStatusTone: Record<ConnectionState, StatusTone> = {
 };
 
 export function App() {
-  const termiraBridge = useMemo(() => window.termira ?? browserPreviewBridge, []);
   const [language, setLanguage] = useState<AppLanguage>(() => {
     const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
     return isAppLanguage(stored) ? stored : DEFAULT_LANGUAGE;
   });
-  const [status, setStatus] = useState<BackendStatus>(initialStatus);
   const [activeView, setActiveView] = useState<ActiveView>("hosts");
   const [activeTool, setActiveTool] = useState<ToolPanelId>("files");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
   const [processSearch, setProcessSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState(hosts[0].id);
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-current");
-  const [lastPing, setLastPing] = useState<PingResult | null>(null);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [closedTerminalTabIds, setClosedTerminalTabIds] = useState<string[]>([]);
 
   const text = getMessages(language);
-  const statusTone = getBackendStateTone(status.state);
-  const isOnline = status.state === "online";
-
   const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0];
-  const terminalTabs = useMemo<TerminalSession[]>(
-    () => [
+  const terminalTabs = useMemo<TerminalSession[]>(() => {
+    const tabs = [
       {
         id: "tab-current",
         hostId: selectedHost.id,
@@ -491,10 +438,21 @@ export function App() {
         cwd: "/data/observability/archive/2026/04/29/service-with-a-very-long-path-for-layout-regression/current",
         status: "failed"
       }
-    ],
+    ] satisfies TerminalSession[];
+
+    return tabs.filter((tab) => !closedTerminalTabIds.includes(tab.id));
+  }, [closedTerminalTabIds, selectedHost]);
+  const fallbackTerminalTab = useMemo<TerminalSession>(
+    () => ({
+      id: "tab-current",
+      hostId: selectedHost.id,
+      title: selectedHost.name,
+      cwd: selectedHost.remotePath,
+      status: selectedHost.status
+    }),
     [selectedHost]
   );
-  const activeTerminal = terminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? terminalTabs[0];
+  const activeTerminal = terminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? terminalTabs[0] ?? fallbackTerminalTab;
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
 
@@ -520,103 +478,25 @@ export function App() {
     );
   }, [processSearch]);
 
-  const versionText = useMemo(() => {
-    if (!status.protocolVersion && !status.backendVersion) {
-      return text.backend.protocolPending;
-    }
-
-    return text.backend.versionText(status.protocolVersion ?? "-", status.backendVersion ?? "-");
-  }, [status.backendVersion, status.protocolVersion, text]);
-
   useEffect(() => {
     document.documentElement.lang = language;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   }, [language]);
 
-  useEffect(() => {
-    void refreshStatus();
-
-    const handleLifecycleEvent = (payload: unknown, event: string) => {
-      appendTimeline(event, summarizePayload(payload, text));
-      void refreshStatus();
-    };
-
-    termiraBridge.on("backend.ready", handleLifecycleEvent);
-    termiraBridge.on("backend.exited", handleLifecycleEvent);
-    termiraBridge.on("backend.error", handleLifecycleEvent);
-    termiraBridge.on("backend.starting", handleLifecycleEvent);
-
-    return () => {
-      termiraBridge.off("backend.ready", handleLifecycleEvent);
-      termiraBridge.off("backend.exited", handleLifecycleEvent);
-      termiraBridge.off("backend.error", handleLifecycleEvent);
-      termiraBridge.off("backend.starting", handleLifecycleEvent);
-    };
-  }, [termiraBridge, text]);
-
-  async function refreshStatus() {
-    const nextStatus = await termiraBridge.invoke<BackendStatus>("app.getBackendStatus");
-    setStatus(nextStatus);
-  }
-
-  async function pingBackend() {
-    setBusyAction("ping");
-    try {
-      const result = await termiraBridge.invoke<PingResult>("app.ping");
-      setLastPing(result);
-      appendTimeline("app.ping", result.message);
-      await refreshStatus();
-    } catch (error) {
-      appendTimeline("app.ping.failed", error instanceof Error ? error.message : String(error));
-      await refreshStatus();
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function stopBackend() {
-    setBusyAction("stop");
-    try {
-      await termiraBridge.invoke("app.shutdown");
-      appendTimeline("app.shutdown", text.timeline.accepted);
-    } catch (error) {
-      appendTimeline("app.shutdown.failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusyAction(null);
-      await refreshStatus();
-    }
-  }
-
-  async function restartBackend() {
-    setBusyAction("restart");
-    try {
-      await termiraBridge.invoke("app.restartBackend");
-      appendTimeline("app.restartBackend", text.timeline.starting);
-    } catch (error) {
-      appendTimeline("app.restartBackend.failed", error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusyAction(null);
-      await refreshStatus();
-    }
-  }
-
-  function appendTimeline(label: string, detail: string) {
-    const timestamp = new Date().toISOString();
-    setTimeline((current) => [
-      {
-        id: `${timestamp}_${label}`,
-        label,
-        detail,
-        timestamp
-      },
-      ...current
-    ].slice(0, 8));
-  }
-
   function selectHost(hostId: string) {
     setSelectedHostId(hostId);
     setActiveTerminalTabId("tab-current");
+    setClosedTerminalTabIds((current) => current.filter((tabId) => tabId !== "tab-current"));
     setActiveView("hosts");
+  }
+
+  function closeTerminalTab(tabId: string) {
+    const nextTabs = terminalTabs.filter((tab) => tab.id !== tabId);
+    setClosedTerminalTabIds((current) => [...new Set([...current, tabId])]);
+
+    if (activeTerminalTabId === tabId) {
+      setActiveTerminalTabId(nextTabs[0]?.id ?? "tab-current");
+    }
   }
 
   function renderHostRows(items: HostItem[], emptyText: string) {
@@ -911,39 +791,52 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
-      <aside className="rail" aria-label={text.navigation.workspace}>
-        <div className="brand-mark">
-          <Terminal size={22} aria-hidden="true" />
-        </div>
-        <button
-          className={`rail-button ${activeView === "hosts" ? "is-active" : ""}`}
-          type="button"
-          title={text.navigation.hosts}
-          aria-label={text.navigation.hosts}
-          onClick={() => setActiveView("hosts")}
-        >
-          <Server size={18} aria-hidden="true" />
-        </button>
-        <button
-          className={`rail-button ${activeView === "settings" ? "is-active" : ""}`}
-          type="button"
-          title={text.navigation.settings}
-          aria-label={text.navigation.settings}
-          onClick={() => setActiveView("settings")}
-        >
-          <Settings size={18} aria-hidden="true" />
-        </button>
-      </aside>
-
+    <main className={`app-shell ${isSidebarCollapsed ? "is-nav-collapsed" : ""}`}>
       <aside className="navigator">
+        <div className="navigator-top">
+          <div className="brand-lockup">
+            <span className="brand-mark-small">
+              <Terminal size={18} aria-hidden="true" />
+            </span>
+            <div>
+              <strong>Termira</strong>
+              <small>{activeView === "hosts" ? text.hosts.sidebarTitle : text.settings.sidebarTitle}</small>
+            </div>
+          </div>
+          <button
+            className="nav-collapse-button"
+            type="button"
+            title={isSidebarCollapsed ? text.navigation.expandSidebar : text.navigation.collapseSidebar}
+            aria-label={isSidebarCollapsed ? text.navigation.expandSidebar : text.navigation.collapseSidebar}
+            onClick={() => setIsSidebarCollapsed((current) => !current)}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={16} aria-hidden="true" /> : <PanelLeftClose size={16} aria-hidden="true" />}
+          </button>
+        </div>
+
+        <div className="navigator-mode" aria-label={text.navigation.workspace}>
+          <button
+            className={activeView === "hosts" ? "is-active" : undefined}
+            type="button"
+            title={text.navigation.hosts}
+            onClick={() => setActiveView("hosts")}
+          >
+            <Server size={15} aria-hidden="true" />
+            <span>{text.navigation.hosts}</span>
+          </button>
+          <button
+            className={activeView === "settings" ? "is-active" : undefined}
+            type="button"
+            title={text.navigation.settings}
+            onClick={() => setActiveView("settings")}
+          >
+            <Settings size={15} aria-hidden="true" />
+            <span>{text.navigation.settings}</span>
+          </button>
+        </div>
+
         {activeView === "hosts" ? (
           <>
-            <div className="navigator-heading">
-              <p className="eyebrow">Termira</p>
-              <h2>{text.hosts.sidebarTitle}</h2>
-            </div>
-
             <label className="search-box">
               <Search size={16} aria-hidden="true" />
               <input
@@ -987,13 +880,8 @@ export function App() {
           </>
         ) : (
           <>
-            <div className="navigator-heading">
-              <p className="eyebrow">Termira</p>
-              <h2>{text.settings.sidebarTitle}</h2>
-            </div>
             <nav className="settings-nav" aria-label={text.settings.sidebarTitle}>
               <a href="#preferences">{text.settings.preferences}</a>
-              <a href="#runtime">{text.settings.runtime}</a>
             </nav>
           </>
         )}
@@ -1002,22 +890,36 @@ export function App() {
       <section className="workspace">
         {activeView === "hosts" ? (
           <section className="workspace-view">
-            <header className="workspace-header">
-              <div className="workspace-title">
-                <p className="eyebrow">{text.hosts.workspaceEyebrow}</p>
-                <h1>{translate(selectedHost.name, language)}</h1>
-                <p>{translate(selectedHost.note, language)}</p>
+            <header className="session-bar">
+              <div className="session-identity">
+                <span className={`connection-dot connection-dot--${hostStatusTone[selectedHost.status]}`} />
+                <div>
+                  <strong title={translate(selectedHost.name, language)}>{translate(selectedHost.name, language)}</strong>
+                  <code title={formatHostAddress(selectedHost)}>{formatHostAddress(selectedHost)}</code>
+                </div>
               </div>
-              <div className="header-actions">
-                <button className="button" type="button" disabled title={text.hosts.disconnect}>
-                  <Square size={16} aria-hidden="true" />
-                  <span>{text.hosts.disconnect}</span>
+
+              <nav className="workspace-tabs" aria-label={text.tools.title}>
+                <button className="is-active" type="button" title={text.terminal.title}>
+                  <Terminal size={15} aria-hidden="true" />
+                  <span>{text.terminal.tabLabel}</span>
                 </button>
-                <button className="button button--accent" type="button">
-                  <Terminal size={16} aria-hidden="true" />
-                  <span>{text.hosts.connect}</span>
-                </button>
-              </div>
+                {toolDefinitions.map((tool) => {
+                  const Icon = tool.icon;
+                  return (
+                    <button
+                      key={tool.id}
+                      className={activeTool === tool.id ? "is-selected" : undefined}
+                      type="button"
+                      title={translate(tool.label, language)}
+                      onClick={() => setActiveTool(tool.id)}
+                    >
+                      <Icon size={15} aria-hidden="true" />
+                      <span>{translate(tool.label, language)}</span>
+                    </button>
+                  );
+                })}
+              </nav>
             </header>
 
             <section className="workbench-grid">
@@ -1025,19 +927,40 @@ export function App() {
                 <section className="terminal-stage" aria-label={text.terminal.title}>
                   <div className="terminal-tabs">
                     {terminalTabs.map((tab) => (
-                      <button
+                      <div
                         key={tab.id}
-                        className={activeTerminal.id === tab.id ? "is-active" : undefined}
-                        type="button"
+                        className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
-                        onClick={() => setActiveTerminalTabId(tab.id)}
                       >
-                        <span className={`tab-status tab-status--${hostStatusTone[tab.status]}`} />
-                        <span>{translate(tab.title, language)}</span>
-                        {tab.id !== "tab-current" ? <X size={13} aria-hidden="true" /> : null}
-                      </button>
+                        <button
+                          className="terminal-tab-main"
+                          type="button"
+                          title={translate(tab.title, language)}
+                          onClick={() => setActiveTerminalTabId(tab.id)}
+                        >
+                          <span className={`tab-status tab-status--${hostStatusTone[tab.status]}`} />
+                          <span>{translate(tab.title, language)}</span>
+                        </button>
+                        <button
+                          className="tab-close"
+                          type="button"
+                          title={text.terminal.closeTab}
+                          aria-label={text.terminal.closeTab}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            closeTerminalTab(tab.id);
+                          }}
+                        >
+                          <X size={13} aria-hidden="true" />
+                        </button>
+                      </div>
                     ))}
-                    <button type="button" title={text.terminal.newTab} aria-label={text.terminal.newTab}>
+                    <button
+                      className="terminal-tab terminal-tab--add"
+                      type="button"
+                      title={text.terminal.newTab}
+                      aria-label={text.terminal.newTab}
+                    >
                       <Plus size={14} aria-hidden="true" />
                     </button>
                   </div>
@@ -1069,48 +992,9 @@ export function App() {
                     </pre>
                   </div>
                 </section>
-
-                <section className="session-strip" aria-label={text.hosts.sessionTitle}>
-                  <div>
-                    <span>{text.hosts.address}</span>
-                    <strong title={formatHostAddress(selectedHost)}>{formatHostAddress(selectedHost)}</strong>
-                  </div>
-                  <div>
-                    <span>{text.hosts.group}</span>
-                    <strong>{translate(selectedHost.group, language)}</strong>
-                  </div>
-                  <div>
-                    <span>{text.hosts.currentPath}</span>
-                    <strong title={selectedHost.remotePath}>{selectedHost.remotePath}</strong>
-                  </div>
-                  <div>
-                    <span>{text.hosts.auth}</span>
-                    <strong>{selectedHost.identity}</strong>
-                  </div>
-                </section>
               </div>
 
               <aside className="tool-dock" aria-label={text.tools.title}>
-                <div className="tool-dock-tabs" role="tablist" aria-label={text.tools.title}>
-                  {toolDefinitions.map((tool) => {
-                    const Icon = tool.icon;
-                    return (
-                      <button
-                        key={tool.id}
-                        className={activeTool === tool.id ? "is-active" : undefined}
-                        type="button"
-                        role="tab"
-                        aria-selected={activeTool === tool.id}
-                        title={translate(tool.label, language)}
-                        onClick={() => setActiveTool(tool.id)}
-                      >
-                        <Icon size={15} aria-hidden="true" />
-                        <span>{translate(tool.label, language)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <div className="tool-panel-heading">
                   <div>
                     <p className="eyebrow">{text.tools.eyebrow}</p>
@@ -1154,91 +1038,6 @@ export function App() {
                   ))}
                 </div>
               </div>
-            </div>
-
-            <div className="workspace-panel" id="runtime">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">{text.backend.eyebrow}</p>
-                  <h2>{text.settings.runtime}</h2>
-                </div>
-                <div className={`status-pill status-pill--${statusTone}`}>
-                  {isOnline ? <Wifi size={16} aria-hidden="true" /> : <WifiOff size={16} aria-hidden="true" />}
-                  <span>{formatBackendState(status.state, language)}</span>
-                </div>
-              </div>
-
-              <dl className="metric-grid">
-                <div>
-                  <dt>{text.backend.process}</dt>
-                  <dd>{status.pid ? `PID ${status.pid}` : text.backend.notRunning}</dd>
-                </div>
-                <div>
-                  <dt>{text.backend.version}</dt>
-                  <dd>{versionText}</dd>
-                </div>
-                <div>
-                  <dt>{text.backend.lastPing}</dt>
-                  <dd>{lastPing?.timestamp ?? text.backend.noPing}</dd>
-                </div>
-                <div>
-                  <dt>{text.backend.logs}</dt>
-                  <dd className="path-text">{status.logDir || text.backend.pending}</dd>
-                </div>
-              </dl>
-
-              {status.lastError ? <p className="inline-error">{status.lastError}</p> : null}
-
-              <div className="action-row">
-                <button
-                  className="button button--accent"
-                  type="button"
-                  onClick={pingBackend}
-                  disabled={!isOnline || busyAction !== null}
-                >
-                  <Activity size={16} aria-hidden="true" />
-                  <span>{busyAction === "ping" ? text.actions.pinging : text.actions.ping}</span>
-                </button>
-                <button className="button" type="button" onClick={restartBackend} disabled={busyAction !== null}>
-                  <RefreshCcw size={16} aria-hidden="true" />
-                  <span>{busyAction === "restart" ? text.actions.restarting : text.actions.restart}</span>
-                </button>
-                <button
-                  className="button button--danger"
-                  type="button"
-                  onClick={stopBackend}
-                  disabled={!isOnline || busyAction !== null}
-                >
-                  <Power size={16} aria-hidden="true" />
-                  <span>{busyAction === "stop" ? text.actions.stopping : text.actions.stop}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="workspace-panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">{text.timeline.eyebrow}</p>
-                  <h2>{text.timeline.title}</h2>
-                </div>
-              </div>
-              <ol className="timeline">
-                {timeline.length > 0 ? (
-                  timeline.map((entry) => (
-                    <li key={entry.id}>
-                      <span>{entry.label}</span>
-                      <strong>{entry.detail}</strong>
-                      <time dateTime={entry.timestamp}>{new Date(entry.timestamp).toLocaleTimeString()}</time>
-                    </li>
-                  ))
-                ) : (
-                  <li className="empty-row">
-                    <span>{text.timeline.waiting}</span>
-                    <strong>{text.timeline.empty}</strong>
-                    <time>-</time>
-                  </li>
-                )}
-              </ol>
             </div>
           </section>
         )}
@@ -1293,31 +1092,6 @@ function getForwardTone(status: ForwardRule["status"]): StatusTone {
     default:
       return assertNever(status);
   }
-}
-
-function summarizePayload(payload: unknown, text: AppMessages): string {
-  if (!payload || typeof payload !== "object") {
-    return payload === undefined ? text.timeline.received : String(payload);
-  }
-
-  const record = payload as Record<string, unknown>;
-  if (typeof record.message === "string") {
-    return record.message;
-  }
-
-  if ("code" in record || "signal" in record) {
-    return `code=${String(record.code ?? "-")} signal=${String(record.signal ?? "-")}`;
-  }
-
-  if (typeof record.backendVersion === "string") {
-    return text.timeline.backendVersion(record.backendVersion);
-  }
-
-  if (record.accepted === true) {
-    return text.timeline.accepted;
-  }
-
-  return text.timeline.received;
 }
 
 function assertNever(value: never): never {

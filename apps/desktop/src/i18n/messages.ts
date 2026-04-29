@@ -16,9 +16,9 @@ export const messages = {
     navigation: {
       workspace: "Termira 工作台导航",
       hosts: "主机",
-      backend: "后端",
-      activity: "活动",
-      settings: "设置"
+      settings: "设置",
+      collapseSidebar: "折叠侧栏",
+      expandSidebar: "展开侧栏"
     },
     language: {
       label: "语言"
@@ -56,8 +56,10 @@ export const messages = {
     },
     terminal: {
       title: "终端预览",
+      tabLabel: "终端",
       mockBadge: "预览会话",
       newTab: "新建终端标签",
+      closeTab: "关闭终端标签",
       connected: (hostName: string) => `已选择 ${hostName}`,
       ready: "连接能力将在后续阶段接入真实 SSH。",
       placeholder: "Termira 工作台已就绪。",
@@ -69,21 +71,6 @@ export const messages = {
       starting: "启动中",
       error: "错误",
       offline: "离线"
-    },
-    backend: {
-      eyebrow: "Java 后端进程",
-      online: "后端在线",
-      offline: "后端离线",
-      process: "进程",
-      notRunning: "未运行",
-      version: "版本",
-      protocolPending: "协议待就绪",
-      versionText: (protocolVersion: string, backendVersion: string) =>
-        `协议 ${protocolVersion} / 后端 ${backendVersion}`,
-      lastPing: "最近 Ping",
-      noPing: "尚未 Ping",
-      logs: "日志",
-      pending: "待就绪"
     },
     actions: {
       ping: "Ping",
@@ -145,36 +132,22 @@ export const messages = {
         send: "发送"
       }
     },
-    timeline: {
-      eyebrow: "IPC 时间线",
-      title: "运行事件",
-      waiting: "等待中",
-      empty: "暂无事件",
-      received: "已接收",
-      accepted: "已接受",
-      starting: "启动中",
-      backendVersion: (version: string) => `后端 ${version}`
-    },
     settings: {
       sidebarTitle: "设置",
       preferences: "偏好设置",
-      runtime: "运行状态",
       eyebrow: "偏好设置",
       title: "语言",
       description: "Termira 默认使用中文界面，同时保留英文界面用于后续国际化。",
       currentLanguage: "当前语言"
-    },
-    errors: {
-      unhandledBackendState: (state: never) => `未处理的后端状态: ${state}`
     }
   },
   "en-US": {
     navigation: {
       workspace: "Termira workspace navigation",
       hosts: "Hosts",
-      backend: "Backend",
-      activity: "Activity",
-      settings: "Settings"
+      settings: "Settings",
+      collapseSidebar: "Collapse sidebar",
+      expandSidebar: "Expand sidebar"
     },
     language: {
       label: "Language"
@@ -212,8 +185,10 @@ export const messages = {
     },
     terminal: {
       title: "Terminal preview",
+      tabLabel: "Terminal",
       mockBadge: "Preview session",
       newTab: "New terminal tab",
+      closeTab: "Close terminal tab",
       connected: (hostName: string) => `Selected ${hostName}`,
       ready: "Real SSH connections will be wired in a later stage.",
       placeholder: "Termira workspace is ready.",
@@ -225,21 +200,6 @@ export const messages = {
       starting: "Starting",
       error: "Error",
       offline: "Offline"
-    },
-    backend: {
-      eyebrow: "Java sidecar",
-      online: "Backend online",
-      offline: "Backend offline",
-      process: "Process",
-      notRunning: "Not running",
-      version: "Version",
-      protocolPending: "Protocol pending",
-      versionText: (protocolVersion: string, backendVersion: string) =>
-        `Protocol ${protocolVersion} / Backend ${backendVersion}`,
-      lastPing: "Last ping",
-      noPing: "No ping yet",
-      logs: "Logs",
-      pending: "Pending"
     },
     actions: {
       ping: "Ping",
@@ -301,27 +261,13 @@ export const messages = {
         send: "Send"
       }
     },
-    timeline: {
-      eyebrow: "IPC timeline",
-      title: "Runtime events",
-      waiting: "Waiting",
-      empty: "No events yet",
-      received: "received",
-      accepted: "accepted",
-      starting: "starting",
-      backendVersion: (version: string) => `backend ${version}`
-    },
     settings: {
       sidebarTitle: "Settings",
       preferences: "Preferences",
-      runtime: "Runtime",
       eyebrow: "Preferences",
       title: "Language",
       description: "Termira uses Chinese by default while keeping English available for future localization.",
       currentLanguage: "Current language"
-    },
-    errors: {
-      unhandledBackendState: (state: never) => `Unhandled backend state: ${state}`
     }
   }
 };
