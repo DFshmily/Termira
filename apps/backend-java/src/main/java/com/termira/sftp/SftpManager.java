@@ -258,7 +258,14 @@ public final class SftpManager implements AutoCloseable {
     }
 
     private String canonicalize(SFTPClient client, String path) throws IOException {
-        return client.canonicalize(optionalPath(path, "."));
+        String normalized = optionalPath(path, ".");
+        if ("~".equals(normalized)) {
+            return client.canonicalize(".");
+        }
+        if (normalized.startsWith("~/")) {
+            return joinRemotePath(client.canonicalize("."), normalized.substring(2));
+        }
+        return client.canonicalize(normalized);
     }
 
     private AppError mapSftpError(IOException error, String action, String path) {
@@ -357,6 +364,14 @@ public final class SftpManager implements AutoCloseable {
 
     private String optionalPath(String path, String fallback) {
         return hasText(path) ? path.trim() : fallback;
+    }
+
+    private String joinRemotePath(String basePath, String name) {
+        String trimmedName = name.trim();
+        if ("/".equals(basePath)) {
+            return "/" + trimmedName;
+        }
+        return basePath.replaceAll("/+$", "") + "/" + trimmedName;
     }
 
     private String requireText(String value, String field) throws AppError {

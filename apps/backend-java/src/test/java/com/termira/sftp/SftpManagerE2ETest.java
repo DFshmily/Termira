@@ -59,6 +59,8 @@ class SftpManagerE2ETest {
 
             SftpOpenResult open = sftpManager.open(new SftpOpenRequest(session.sessionId(), "."));
             assertThat(open.path()).isNotBlank();
+            SftpOpenResult home = sftpManager.open(new SftpOpenRequest(session.sessionId(), "~"));
+            assertThat(home.path()).isEqualTo(open.path());
 
             remoteDir = joinRemote(open.path(), "termira-sftp-e2e-" + System.currentTimeMillis());
             String createdRemoteDir = remoteDir;
