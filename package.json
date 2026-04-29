@@ -1,0 +1,21 @@
+{
+  "name": "termira",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Termira desktop SSH client monorepo.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/desktop",
+    "build": "npm run build -w apps/desktop && npm run build -w packages/shared && npm run build:java",
+    "build:java": "mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml clean package",
+    "test": "npm run test -w apps/desktop && npm run test -w packages/shared && mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml test",
+    "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w packages/shared"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

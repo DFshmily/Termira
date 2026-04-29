@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+.m2/
+dist/
+dist-electron/
+coverage/
+*.log
+
+apps/backend-java/target/
+apps/desktop/.vite/
+
+.idea/
+.vscode/
