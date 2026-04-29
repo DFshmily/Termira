@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.termira.error.AppError;
+import com.termira.error.ErrorCode;
 import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -40,5 +41,23 @@ class MethodRouterTest {
         assertThatThrownBy(() -> router.route(new IpcRequest("req_1", "request", "missing.method", null)))
                 .isInstanceOf(AppError.class)
                 .hasMessageContaining("Unknown IPC method");
+    }
+
+    @Test
+    void rejectsInvalidSshConnectParamsBeforeNetwork() {
+        MethodRouter router = new MethodRouter(tempDir);
+
+        assertThatThrownBy(() -> router.route(new IpcRequest("req_1", "request", "ssh.connect", null)))
+                .isInstanceOfSatisfying(AppError.class, error ->
+                        assertThat(error.code()).isEqualTo(ErrorCode.SSH_VALIDATION_FAILED));
+    }
+
+    @Test
+    void returnsMissingSessionForTerminalWriteWithoutSession() {
+        MethodRouter router = new MethodRouter(tempDir);
+
+        assertThatThrownBy(() -> router.route(new IpcRequest("req_1", "request", "terminal.write", null)))
+                .isInstanceOfSatisfying(AppError.class, error ->
+                        assertThat(error.code()).isEqualTo(ErrorCode.SSH_VALIDATION_FAILED));
     }
 }

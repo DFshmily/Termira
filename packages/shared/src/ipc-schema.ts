@@ -62,3 +62,90 @@ export type PingResult = BackendVersion & {
   message: "pong";
   timestamp: string;
 };
+
+export type SshAuthType = "password" | "privateKey" | "keyboardInteractive";
+
+export type SshSessionStatus =
+  | "CREATED"
+  | "CONNECTING"
+  | "AUTHENTICATING"
+  | "CONNECTED"
+  | "DISCONNECTING"
+  | "DISCONNECTED"
+  | "FAILED";
+
+export type SshConnectParams = {
+  profileId?: string;
+  sessionId?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  authType?: SshAuthType;
+  password?: string;
+  privateKeyPath?: string;
+  privateKeyContent?: string;
+  passphrase?: string;
+  connectTimeoutMs?: number;
+};
+
+export type SshSessionView = {
+  sessionId: string;
+  profileId?: string;
+  host: string;
+  port: number;
+  username: string;
+  status: SshSessionStatus;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+export type SshDisconnectParams = {
+  sessionId: string;
+};
+
+export type TerminalOpenShellParams = {
+  sessionId: string;
+  channelId?: string;
+  cols?: number;
+  rows?: number;
+  term?: string;
+};
+
+export type TerminalOpenShellResult = {
+  sessionId: string;
+  channelId: string;
+  cols: number;
+  rows: number;
+};
+
+export type TerminalWriteParams = {
+  sessionId: string;
+  channelId: string;
+  data: string;
+};
+
+export type TerminalResizeParams = {
+  sessionId: string;
+  channelId: string;
+  cols: number;
+  rows: number;
+  width?: number;
+  height?: number;
+};
+
+export type TerminalCloseParams = {
+  sessionId: string;
+  channelId: string;
+};
+
+export type TerminalOutputEvent = {
+  sessionId: string;
+  channelId: string;
+  stream?: "stdout" | "stderr";
+  data: string;
+};
+
+export type TerminalClosedEvent = {
+  sessionId: string;
+  channelId: string;
+};

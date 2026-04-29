@@ -606,7 +606,7 @@ h2 {
 
 .terminal-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
 }
 
@@ -676,6 +676,67 @@ h2 {
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.terminal-surface-stack {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-terminal);
+}
+
+.terminal-surface {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.terminal-surface.is-active {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
+}
+
+.terminal-empty {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.terminal-empty svg {
+  color: var(--color-accent-strong);
+}
+
+.terminal-status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid #171d22;
+  color: var(--color-danger);
+  background: rgba(239, 125, 115, 0.07);
+  font-size: 12px;
+}
+
+.terminal-status-line span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-dock {

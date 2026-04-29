@@ -1,11 +1,13 @@
 import type { LucideIcon } from "lucide-react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal as XTermTerminal, type IDisposable } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
   BarChart3,
   CheckCircle2,
   Clock,
   Command,
-  Copy,
   Cpu,
   Download,
   FileText,
@@ -40,7 +42,7 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -130,6 +132,45 @@ type TerminalSession = {
   title: LocalizedText;
   cwd: string;
   status: ConnectionState;
+  sessionId?: string;
+  channelId?: string;
+  error?: string;
+};
+
+type SshSessionView = {
+  sessionId: string;
+  profileId?: string;
+  host: string;
+  port: number;
+  username: string;
+  status: "CREATED" | "CONNECTING" | "AUTHENTICATING" | "CONNECTED" | "DISCONNECTING" | "DISCONNECTED" | "FAILED";
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+type TerminalOpenResult = {
+  sessionId: string;
+  channelId: string;
+  cols: number;
+  rows: number;
+};
+
+type TerminalOutputPayload = {
+  sessionId: string;
+  channelId: string;
+  data: string;
+  stream?: "stdout" | "stderr";
+};
+
+type TerminalClosedPayload = {
+  sessionId: string;
+  channelId: string;
+};
+
+type XTermEntry = {
+  terminal: XTermTerminal;
+  fitAddon: FitAddon;
+  inputDisposable: IDisposable;
 };
 
 type ToolDefinition = {
@@ -408,8 +449,9 @@ export function App() {
   const [hostSearch, setHostSearch] = useState("");
   const [processSearch, setProcessSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
-  const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-current");
-  const [closedTerminalTabIds, setClosedTerminalTabIds] = useState<string[]>([]);
+  const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
+  const [terminalTabs, setTerminalTabs] = useState<TerminalSession[]>([]);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
   const [hostProfiles, setHostProfiles] = useState<BackendHostProfile[]>([]);
   const [isHostLoading, setIsHostLoading] = useState(true);
   const [hostError, setHostError] = useState<string | null>(null);
@@ -423,41 +465,16 @@ export function App() {
   const [isVaultBusy, setIsVaultBusy] = useState(false);
 
   const text = getMessages(language);
-  const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile)), [hostProfiles]);
+  const terminalTabsRef = useRef<TerminalSession[]>([]);
+  const xtermEntriesRef = useRef<Map<string, XTermEntry>>(new Map());
+  const pendingTerminalOutputRef = useRef<Map<string, string[]>>(new Map());
+  const resizeTimersRef = useRef<Map<string, number>>(new Map());
+  const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
+  const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
   const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0] ?? createPlaceholderHost(language);
-  const terminalTabs = useMemo<TerminalSession[]>(() => {
-    const tabs = [
-      {
-        id: "tab-current",
-        hostId: selectedHost.id,
-        title: selectedHost.name,
-        cwd: selectedHost.remotePath,
-        status: selectedHost.status
-      },
-      {
-        id: "tab-staging",
-        hostId: "staging-web",
-        title: { "zh-CN": "预发 Web · 日志", "en-US": "Staging Web · Logs" },
-        cwd: "/var/www/termira-preview/current/logs",
-        status: "connecting"
-      },
-      {
-        id: "tab-long",
-        hostId: "ops-long-name",
-        title: {
-          "zh-CN": "链路追踪超长标签 /data/observability/archive/current",
-          "en-US": "Tracing long tab /data/observability/archive/current"
-        },
-        cwd: "/data/observability/archive/2026/04/29/service-with-a-very-long-path-for-layout-regression/current",
-        status: "failed"
-      }
-    ] satisfies TerminalSession[];
-
-    return tabs.filter((tab) => !closedTerminalTabIds.includes(tab.id));
-  }, [closedTerminalTabIds, selectedHost]);
-  const fallbackTerminalTab = useMemo<TerminalSession>(
+  const previewTerminalTab = useMemo<TerminalSession>(
     () => ({
-      id: "tab-current",
+      id: "tab-preview",
       hostId: selectedHost.id,
       title: selectedHost.name,
       cwd: selectedHost.remotePath,
@@ -465,7 +482,8 @@ export function App() {
     }),
     [selectedHost]
   );
-  const activeTerminal = terminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? terminalTabs[0] ?? fallbackTerminalTab;
+  const visibleTerminalTabs = terminalTabs.length > 0 ? terminalTabs : [previewTerminalTab];
+  const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
 
@@ -491,10 +509,108 @@ export function App() {
     );
   }, [processSearch]);
 
+  const fitAndResizeTerminal = useCallback((tabId: string) => {
+    const entry = xtermEntriesRef.current.get(tabId);
+    if (!entry) {
+      return;
+    }
+
+    entry.fitAddon.fit();
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab?.sessionId || !tab.channelId) {
+      return;
+    }
+
+    const existingTimer = resizeTimersRef.current.get(tabId);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+    const timer = window.setTimeout(() => {
+      resizeTimersRef.current.delete(tabId);
+      void window.termira
+        .invoke("terminal.resize", {
+          sessionId: tab.sessionId,
+          channelId: tab.channelId,
+          cols: entry.terminal.cols,
+          rows: entry.terminal.rows
+        })
+        .catch((error) => setTerminalError(errorMessage(error)));
+    }, 120);
+    resizeTimersRef.current.set(tabId, timer);
+  }, []);
+
+  const disposeTerminal = useCallback((tabId: string) => {
+    const timer = resizeTimersRef.current.get(tabId);
+    if (timer) {
+      window.clearTimeout(timer);
+      resizeTimersRef.current.delete(tabId);
+    }
+    const entry = xtermEntriesRef.current.get(tabId);
+    if (entry) {
+      entry.inputDisposable.dispose();
+      entry.terminal.dispose();
+      xtermEntriesRef.current.delete(tabId);
+    }
+    pendingTerminalOutputRef.current.delete(tabId);
+  }, []);
+
+  const mountTerminal = useCallback(
+    (tabId: string, node: HTMLDivElement | null) => {
+      if (!node || xtermEntriesRef.current.has(tabId)) {
+        return;
+      }
+
+      const terminal = new XTermTerminal({
+        allowProposedApi: false,
+        cursorBlink: true,
+        convertEol: true,
+        fontFamily: "SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace",
+        fontSize: 13,
+        lineHeight: 1.35,
+        scrollback: 3000,
+        theme: {
+          background: "#080b0d",
+          foreground: "#d5f8ee",
+          cursor: "#42c5ad",
+          selectionBackground: "#214d47"
+        }
+      });
+      const fitAddon = new FitAddon();
+      terminal.loadAddon(fitAddon);
+
+      const inputDisposable = terminal.onData((data) => {
+        const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+        if (!tab?.sessionId || !tab.channelId || tab.status !== "connected") {
+          return;
+        }
+        void window.termira
+          .invoke("terminal.write", {
+            sessionId: tab.sessionId,
+            channelId: tab.channelId,
+            data
+          })
+          .catch((error) => setTerminalError(errorMessage(error)));
+      });
+
+      terminal.open(node);
+      xtermEntriesRef.current.set(tabId, { terminal, fitAddon, inputDisposable });
+      fitAndResizeTerminal(tabId);
+      for (const data of pendingTerminalOutputRef.current.get(tabId) ?? []) {
+        terminal.write(data);
+      }
+      pendingTerminalOutputRef.current.delete(tabId);
+    },
+    [fitAndResizeTerminal]
+  );
+
   useEffect(() => {
     document.documentElement.lang = language;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   }, [language]);
+
+  useEffect(() => {
+    terminalTabsRef.current = terminalTabs;
+  }, [terminalTabs]);
 
   useEffect(() => {
     void refreshProfiles();
@@ -509,6 +625,108 @@ export function App() {
       setSelectedHostId(hosts[0].id);
     }
   }, [hosts, selectedHostId]);
+
+  useEffect(() => {
+    if (terminalTabs.length > 0 && !terminalTabs.some((tab) => tab.id === activeTerminalTabId)) {
+      setActiveTerminalTabId(terminalTabs[0].id);
+    }
+    if (terminalTabs.length === 0 && activeTerminalTabId !== "tab-preview") {
+      setActiveTerminalTabId("tab-preview");
+    }
+  }, [activeTerminalTabId, terminalTabs]);
+
+  useEffect(() => {
+    const onOutput = (payload: unknown) => {
+      const output = payload as Partial<TerminalOutputPayload>;
+      if (typeof output.sessionId !== "string" || typeof output.channelId !== "string" || typeof output.data !== "string") {
+        return;
+      }
+
+      const tab = terminalTabsRef.current.find(
+        (item) => item.channelId === output.channelId || item.sessionId === output.sessionId
+      );
+      if (!tab) {
+        return;
+      }
+
+      const entry = xtermEntriesRef.current.get(tab.id);
+      if (entry) {
+        entry.terminal.write(output.data);
+        return;
+      }
+
+      const pending = pendingTerminalOutputRef.current.get(tab.id) ?? [];
+      pending.push(output.data);
+      pendingTerminalOutputRef.current.set(tab.id, pending.slice(-200));
+    };
+
+    const onTerminalClosed = (payload: unknown) => {
+      const closed = payload as Partial<TerminalClosedPayload>;
+      if (typeof closed.channelId !== "string") {
+        return;
+      }
+      setTerminalTabs((current) =>
+        current.map((tab) =>
+          tab.channelId === closed.channelId
+            ? {
+                ...tab,
+                status: "disconnected"
+              }
+            : tab
+        )
+      );
+    };
+
+    const onSshStatus = (payload: unknown) => {
+      const status = payload as Partial<SshSessionView>;
+      if (typeof status.sessionId !== "string" || typeof status.status !== "string") {
+        return;
+      }
+      const connectionState = sshStatusToConnectionState(status.status as SshSessionView["status"]);
+      setTerminalTabs((current) =>
+        current.map((tab) =>
+          tab.sessionId === status.sessionId
+            ? {
+                ...tab,
+                status: connectionState,
+                error: status.errorMessage
+              }
+            : tab
+        )
+      );
+    };
+
+    window.termira.on("terminal.output", onOutput);
+    window.termira.on("terminal.closed", onTerminalClosed);
+    window.termira.on("ssh.statusChanged", onSshStatus);
+
+    return () => {
+      window.termira.off("terminal.output", onOutput);
+      window.termira.off("terminal.closed", onTerminalClosed);
+      window.termira.off("ssh.statusChanged", onSshStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    const resizeActiveTerminal = () => {
+      if (activeTerminal.id !== "tab-preview") {
+        fitAndResizeTerminal(activeTerminal.id);
+      }
+    };
+    window.addEventListener("resize", resizeActiveTerminal);
+    resizeActiveTerminal();
+
+    return () => window.removeEventListener("resize", resizeActiveTerminal);
+  }, [activeTerminal.id, fitAndResizeTerminal, isSidebarCollapsed, isToolDockCollapsed]);
+
+  useEffect(
+    () => () => {
+      for (const tabId of xtermEntriesRef.current.keys()) {
+        disposeTerminal(tabId);
+      }
+    },
+    []
+  );
 
   async function refreshProfiles() {
     setIsHostLoading(true);
@@ -641,17 +859,130 @@ export function App() {
 
   function selectHost(hostId: string) {
     setSelectedHostId(hostId);
-    setActiveTerminalTabId("tab-current");
-    setClosedTerminalTabIds((current) => current.filter((tabId) => tabId !== "tab-current"));
     setActiveView("hosts");
   }
 
   function closeTerminalTab(tabId: string) {
-    const nextTabs = terminalTabs.filter((tab) => tab.id !== tabId);
-    setClosedTerminalTabIds((current) => [...new Set([...current, tabId])]);
+    const tab = terminalTabs.find((item) => item.id === tabId);
+    if (tab?.sessionId && tab.channelId) {
+      void window.termira.invoke("terminal.close", { sessionId: tab.sessionId, channelId: tab.channelId }).catch(() => undefined);
+    }
+    if (tab?.sessionId) {
+      void window.termira.invoke("ssh.disconnect", { sessionId: tab.sessionId }).catch(() => undefined);
+    }
+    disposeTerminal(tabId);
 
+    const nextTabs = terminalTabs.filter((item) => item.id !== tabId);
+    setTerminalTabs(nextTabs);
     if (activeTerminalTabId === tabId) {
-      setActiveTerminalTabId(nextTabs[0]?.id ?? "tab-current");
+      setActiveTerminalTabId(nextTabs[0]?.id ?? "tab-preview");
+    }
+  }
+
+  async function openTerminalForHost(host: HostItem, existingTabId?: string) {
+    if (host.id === "__placeholder" || host.status === "connecting") {
+      return;
+    }
+
+    const tabId = existingTabId && existingTabId !== "tab-preview" ? existingTabId : `tab_${Date.now()}`;
+    const nextTab: TerminalSession = {
+      id: tabId,
+      hostId: host.id,
+      title: host.name,
+      cwd: host.remotePath,
+      status: "connecting"
+    };
+
+    setTerminalError(null);
+    pendingTerminalOutputRef.current.set(tabId, [`$ ssh -p ${host.port} ${formatHostAddress(host)}\r\n`]);
+    setTerminalTabs((current) => {
+      const rest = current.filter((tab) => tab.id !== tabId);
+      return [...rest, nextTab];
+    });
+    setActiveTerminalTabId(tabId);
+
+    const entry = xtermEntriesRef.current.get(tabId);
+    entry?.terminal.reset();
+    if (entry) {
+      pendingTerminalOutputRef.current.delete(tabId);
+      entry.terminal.write(`$ ssh -p ${host.port} ${formatHostAddress(host)}\r\n`);
+    }
+
+    try {
+      const session = await window.termira.invoke<SshSessionView>("ssh.connect", { profileId: host.id });
+      const dimensions = terminalDimensions(tabId, xtermEntriesRef.current);
+      const shell = await window.termira.invoke<TerminalOpenResult>("terminal.openShell", {
+        sessionId: session.sessionId,
+        cols: dimensions.cols,
+        rows: dimensions.rows,
+        term: "xterm-256color"
+      });
+
+      setTerminalTabs((current) =>
+        current.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                sessionId: session.sessionId,
+                channelId: shell.channelId,
+                status: "connected",
+                error: undefined
+              }
+            : tab
+        )
+      );
+      fitAndResizeTerminal(tabId);
+    } catch (error) {
+      const message = errorMessage(error);
+      setTerminalError(message);
+      setTerminalTabs((current) =>
+        current.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                status: "failed",
+                error: message
+              }
+            : tab
+        )
+      );
+      xtermEntriesRef.current.get(tabId)?.terminal.writeln(`\r\n${message}`);
+    }
+  }
+
+  async function connectActiveTerminal() {
+    await openTerminalForHost(activeTerminalHost, activeTerminal.id);
+  }
+
+  async function openNewTerminalTab() {
+    await openTerminalForHost(selectedHost);
+  }
+
+  async function disconnectActiveTerminal() {
+    if (!activeTerminal.sessionId) {
+      return;
+    }
+    setTerminalError(null);
+    setTerminalTabs((current) =>
+      current.map((tab) =>
+        tab.id === activeTerminal.id
+          ? {
+              ...tab,
+              status: "disconnected"
+            }
+          : tab
+      )
+    );
+    try {
+      if (activeTerminal.channelId) {
+        await window.termira.invoke("terminal.close", {
+          sessionId: activeTerminal.sessionId,
+          channelId: activeTerminal.channelId
+        });
+      }
+      await window.termira.invoke("ssh.disconnect", { sessionId: activeTerminal.sessionId });
+    } catch (error) {
+      setTerminalError(errorMessage(error));
     }
   }
 
@@ -1119,7 +1450,7 @@ export function App() {
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
                   <div className="terminal-tabs">
-                    {terminalTabs.map((tab) => (
+                    {visibleTerminalTabs.map((tab) => (
                       <div
                         key={tab.id}
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
@@ -1134,6 +1465,7 @@ export function App() {
                           type="button"
                           title={text.terminal.closeTab}
                           aria-label={text.terminal.closeTab}
+                          disabled={tab.id === "tab-preview"}
                           onClick={(event) => {
                             event.stopPropagation();
                             closeTerminalTab(tab.id);
@@ -1148,6 +1480,8 @@ export function App() {
                       type="button"
                       title={text.terminal.newTab}
                       aria-label={text.terminal.newTab}
+                      onClick={openNewTerminalTab}
+                      disabled={selectedHost.id === "__placeholder" || selectedHost.status === "connecting"}
                     >
                       <Plus size={14} aria-hidden="true" />
                     </button>
@@ -1157,27 +1491,54 @@ export function App() {
                       <span title={formatHostAddress(activeTerminalHost)}>{formatHostAddress(activeTerminalHost)}</span>
                       <div className="terminal-toolbar-actions">
                         <span>{text.terminal.mockBadge}</span>
-                        <button type="button" title={text.actions.copy} aria-label={text.actions.copy}>
-                          <Copy size={14} aria-hidden="true" />
+                        <span className={`state-badge state-badge--${hostStatusTone[activeTerminal.status]}`}>
+                          {text.hosts.statusLabels[activeTerminal.status]}
+                        </span>
+                        <button
+                          type="button"
+                          title={text.hosts.connect}
+                          aria-label={text.hosts.connect}
+                          disabled={activeTerminal.status === "connecting" || activeTerminal.status === "connected" || activeTerminalHost.id === "__placeholder"}
+                          onClick={connectActiveTerminal}
+                        >
+                          {activeTerminal.status === "connecting" ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
+                        </button>
+                        <button
+                          type="button"
+                          title={text.hosts.disconnect}
+                          aria-label={text.hosts.disconnect}
+                          disabled={!activeTerminal.sessionId || activeTerminal.status === "disconnected"}
+                          onClick={disconnectActiveTerminal}
+                        >
+                          <Square size={14} aria-hidden="true" />
                         </button>
                         <button type="button" title={text.actions.maximize} aria-label={text.actions.maximize}>
                           <Maximize2 size={14} aria-hidden="true" />
                         </button>
                       </div>
                     </div>
-                    <pre>
-                      {[
-                        `$ ssh -p ${activeTerminalHost.port} ${formatHostAddress(activeTerminalHost)}`,
-                        text.terminal.connected(translate(activeTerminalHost.name, language)),
-                        `${activeTerminalHost.user}@${activeTerminalHost.host}:${activeTerminal.cwd}$ systemctl status termira-api`,
-                        "● termira-api.service - Termira API Service",
-                        "   Active: active (running) since Wed 2026-04-29 09:20:12 CST",
-                        `${activeTerminalHost.user}@${activeTerminalHost.host}:${activeTerminal.cwd}$ tail -f application.log`,
-                        "10:18:42 INFO request_id=7f01 latency=42ms route=/api/health",
-                        activeTerminal.status === "failed" ? text.terminal.errorLine : text.terminal.ready,
-                        text.terminal.cursor
-                      ].join("\n")}
-                    </pre>
+                    <div className="terminal-surface-stack">
+                      {terminalTabs.length > 0 ? (
+                        terminalTabs.map((tab) => (
+                          <div
+                            key={tab.id}
+                            className={`terminal-surface ${activeTerminal.id === tab.id ? "is-active" : ""}`}
+                            ref={(node) => mountTerminal(tab.id, node)}
+                          />
+                        ))
+                      ) : (
+                        <div className="terminal-empty">
+                          <Terminal size={28} aria-hidden="true" />
+                          <span>{text.terminal.ready}</span>
+                        </div>
+                      )}
+                    </div>
+                    {terminalError || activeTerminal.error ? (
+                      <div className="terminal-status-line">
+                        <AlertTriangle size={14} aria-hidden="true" />
+                        <span>{terminalError ?? activeTerminal.error}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
               </div>
@@ -1414,7 +1775,7 @@ export function App() {
                 <input
                   type="password"
                   value={hostForm.password}
-                  disabled={hostForm.authType !== "password"}
+                  disabled={hostForm.authType === "privateKey"}
                   onChange={(event) => setHostFormField("password", event.target.value)}
                 />
               </label>
@@ -1472,7 +1833,7 @@ function translate(value: LocalizedText, language: AppLanguage): string {
   return value[language];
 }
 
-function profileToHostItem(profile: BackendHostProfile): HostItem {
+function profileToHostItem(profile: BackendHostProfile, status: ConnectionState = "disconnected"): HostItem {
   const groupName = profile.groupName || "未分组";
   const lastConnected = profile.lastConnectedAt ?? "-";
   const identity =
@@ -1496,7 +1857,7 @@ function profileToHostItem(profile: BackendHostProfile): HostItem {
     tags: profile.tags.map(toLocalized),
     favorite: profile.favorite,
     recent: Boolean(profile.lastConnectedAt),
-    status: "disconnected"
+    status
   };
 }
 
@@ -1571,6 +1932,52 @@ function getForwardTone(status: ForwardRule["status"]): StatusTone {
     default:
       return assertNever(status);
   }
+}
+
+function buildHostStatusMap(tabs: TerminalSession[]): Map<string, ConnectionState> {
+  const map = new Map<string, ConnectionState>();
+  const priority: Record<ConnectionState, number> = {
+    connected: 5,
+    connecting: 4,
+    failed: 3,
+    timeout: 2,
+    disconnected: 1
+  };
+
+  for (const tab of tabs) {
+    const current = map.get(tab.hostId);
+    if (!current || priority[tab.status] > priority[current]) {
+      map.set(tab.hostId, tab.status);
+    }
+  }
+
+  return map;
+}
+
+function sshStatusToConnectionState(status: SshSessionView["status"]): ConnectionState {
+  switch (status) {
+    case "CONNECTED":
+      return "connected";
+    case "CONNECTING":
+    case "AUTHENTICATING":
+    case "CREATED":
+    case "DISCONNECTING":
+      return "connecting";
+    case "FAILED":
+      return "failed";
+    case "DISCONNECTED":
+      return "disconnected";
+    default:
+      return "failed";
+  }
+}
+
+function terminalDimensions(tabId: string, entries: Map<string, XTermEntry>): { cols: number; rows: number } {
+  const terminal = entries.get(tabId)?.terminal;
+  return {
+    cols: terminal?.cols && terminal.cols > 0 ? terminal.cols : 100,
+    rows: terminal?.rows && terminal.rows > 0 ? terminal.rows : 30
+  };
 }
 
 function splitTags(value: string): string[] {

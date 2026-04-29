@@ -29,6 +29,13 @@ public final class IpcServer {
         this.writer = new PrintWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8), true);
         this.router = router;
         this.mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        this.router.setEventSink(event -> {
+            try {
+                emit(event);
+            } catch (IOException error) {
+                LOGGER.warn("Failed to emit IPC event: {}", error.getMessage());
+            }
+        });
     }
 
     public int run() throws IOException {

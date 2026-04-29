@@ -56,13 +56,13 @@ export const messages = {
       }
     },
     terminal: {
-      title: "终端预览",
+      title: "终端",
       tabLabel: "终端",
-      mockBadge: "预览会话",
+      mockBadge: "SSH 会话",
       newTab: "新建终端标签",
       closeTab: "关闭终端标签",
       connected: (hostName: string) => `已选择 ${hostName}`,
-      ready: "连接能力将在后续阶段接入真实 SSH。",
+      ready: "选择主机后可打开 SSH 终端。",
       placeholder: "Termira 工作台已就绪。",
       errorLine: "Last command failed: permission denied while reading /var/log/secure",
       cursor: "▌"
@@ -236,13 +236,13 @@ export const messages = {
       }
     },
     terminal: {
-      title: "Terminal preview",
+      title: "Terminal",
       tabLabel: "Terminal",
-      mockBadge: "Preview session",
+      mockBadge: "SSH session",
       newTab: "New terminal tab",
       closeTab: "Close terminal tab",
       connected: (hostName: string) => `Selected ${hostName}`,
-      ready: "Real SSH connections will be wired in a later stage.",
+      ready: "Select a host to open an SSH terminal.",
       placeholder: "Termira workspace is ready.",
       errorLine: "Last command failed: permission denied while reading /var/log/secure",
       cursor: "▌"

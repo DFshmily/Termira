@@ -10,6 +10,13 @@ import com.termira.profile.HostGroupInput;
 import com.termira.profile.HostProfileInput;
 import com.termira.profile.ProfileStore;
 import com.termira.profile.QuickCommandInput;
+import com.termira.ssh.SshConnectRequest;
+import com.termira.ssh.SshDisconnectRequest;
+import com.termira.ssh.SshSessionManager;
+import com.termira.ssh.TerminalCloseRequest;
+import com.termira.ssh.TerminalOpenShellRequest;
+import com.termira.ssh.TerminalResizeRequest;
+import com.termira.ssh.TerminalWriteRequest;
 import com.termira.vault.CredentialInput;
 import com.termira.vault.VaultInitRequest;
 import com.termira.vault.VaultManager;
@@ -25,6 +32,7 @@ public final class MethodRouter {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ProfileStore profileStore;
     private final VaultManager vaultManager;
+    private final SshSessionManager sshSessionManager;
 
     public MethodRouter() {
         this(ConfigPaths.resolve());
@@ -40,6 +48,11 @@ public final class MethodRouter {
     public MethodRouter(ProfileStore profileStore, VaultManager vaultManager) {
         this.profileStore = profileStore;
         this.vaultManager = vaultManager;
+        this.sshSessionManager = new SshSessionManager(profileStore, vaultManager, IpcEventSink.NOOP);
+    }
+
+    public void setEventSink(IpcEventSink eventSink) {
+        sshSessionManager.setEventSink(eventSink);
     }
 
     public Object route(IpcRequest request) throws AppError {
@@ -77,6 +90,13 @@ public final class MethodRouter {
             case "credential.get" -> vaultManager.getCredential(requiredString(request.params(), "credentialId"));
             case "credential.delete" -> Map.of("deleted", vaultManager.deleteCredential(requiredString(request.params(), "credentialId")));
             case "credential.testDecrypt" -> Map.of("ok", vaultManager.testDecrypt(requiredString(request.params(), "credentialId")));
+            case "ssh.connect" -> sshSessionManager.connect(params(request, SshConnectRequest.class));
+            case "ssh.disconnect" -> sshSessionManager.disconnect(params(request, SshDisconnectRequest.class));
+            case "ssh.getSession" -> sshSessionManager.getSession(requiredString(request.params(), "sessionId"));
+            case "terminal.openShell" -> sshSessionManager.openShell(params(request, TerminalOpenShellRequest.class));
+            case "terminal.write" -> sshSessionManager.write(params(request, TerminalWriteRequest.class));
+            case "terminal.resize" -> sshSessionManager.resize(params(request, TerminalResizeRequest.class));
+            case "terminal.close" -> sshSessionManager.closeTerminal(params(request, TerminalCloseRequest.class));
             default -> throw new AppError(
                     ErrorCode.IPC_UNKNOWN_METHOD,
                     "Unknown IPC method: " + request.method(),
@@ -116,6 +136,7 @@ public final class MethodRouter {
     }
 
     private Map<String, Object> shutdown() {
+        sshSessionManager.close();
         shutdownRequested.set(true);
         return Map.of("accepted", true);
     }
