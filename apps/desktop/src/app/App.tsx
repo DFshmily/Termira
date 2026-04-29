@@ -796,6 +796,40 @@ export function App() {
     }
   }
 
+  function renderToolSideRail() {
+    return (
+      <div className="tool-side-rail" aria-label={text.tools.title}>
+        <button
+          className="icon-button"
+          type="button"
+          title={isToolDockCollapsed ? text.tools.expandPanel : text.tools.collapsePanel}
+          aria-label={isToolDockCollapsed ? text.tools.expandPanel : text.tools.collapsePanel}
+          onClick={() => setIsToolDockCollapsed((current) => !current)}
+        >
+          {isToolDockCollapsed ? <PanelRightOpen size={15} aria-hidden="true" /> : <PanelRightClose size={15} aria-hidden="true" />}
+        </button>
+        {toolDefinitions.map((tool) => {
+          const Icon = tool.icon;
+          return (
+            <button
+              key={tool.id}
+              className={`icon-button ${activeTool === tool.id ? "is-active" : ""}`}
+              type="button"
+              title={translate(tool.label, language)}
+              aria-label={translate(tool.label, language)}
+              onClick={() => {
+                setActiveTool(tool.id);
+                setIsToolDockCollapsed(false);
+              }}
+            >
+              <Icon size={15} aria-hidden="true" />
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <main
       className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
@@ -910,38 +944,6 @@ export function App() {
       <section className="workspace">
         {activeView === "hosts" ? (
           <section className="workspace-view">
-            <header className="session-bar">
-              <div className="session-identity">
-                <span className={`connection-dot connection-dot--${hostStatusTone[selectedHost.status]}`} />
-                <div>
-                  <strong title={translate(selectedHost.name, language)}>{translate(selectedHost.name, language)}</strong>
-                  <code title={formatHostAddress(selectedHost)}>{formatHostAddress(selectedHost)}</code>
-                </div>
-              </div>
-
-              <nav className="workspace-tabs" aria-label={text.tools.title}>
-                <button className="is-active" type="button" title={text.terminal.title}>
-                  <Terminal size={15} aria-hidden="true" />
-                  <span>{text.terminal.tabLabel}</span>
-                </button>
-                {toolDefinitions.map((tool) => {
-                  const Icon = tool.icon;
-                  return (
-                    <button
-                      key={tool.id}
-                      className={activeTool === tool.id ? "is-selected" : undefined}
-                      type="button"
-                      title={translate(tool.label, language)}
-                      onClick={() => setActiveTool(tool.id)}
-                    >
-                      <Icon size={15} aria-hidden="true" />
-                      <span>{translate(tool.label, language)}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </header>
-
             <section className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""}`}>
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
@@ -952,13 +954,8 @@ export function App() {
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
                       >
-                        <button
-                          className="terminal-tab-main"
-                          type="button"
-                          title={translate(tab.title, language)}
-                          onClick={() => setActiveTerminalTabId(tab.id)}
-                        >
-                          <span className={`tab-status tab-status--${hostStatusTone[tab.status]}`} />
+                        <button className="terminal-tab-main" type="button" title={translate(tab.title, language)} onClick={() => setActiveTerminalTabId(tab.id)}>
+                          <Terminal size={14} aria-hidden="true" />
                           <span>{translate(tab.title, language)}</span>
                         </button>
                         <button
@@ -1016,59 +1013,23 @@ export function App() {
 
               <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
                 {isToolDockCollapsed ? (
-                  <div className="tool-collapsed-rail">
-                    <button
-                      className="icon-button"
-                      type="button"
-                      title={text.tools.expandPanel}
-                      aria-label={text.tools.expandPanel}
-                      onClick={() => setIsToolDockCollapsed(false)}
-                    >
-                      <PanelRightOpen size={15} aria-hidden="true" />
-                    </button>
-                    {toolDefinitions.map((tool) => {
-                      const Icon = tool.icon;
-                      return (
-                        <button
-                          key={tool.id}
-                          className={`icon-button ${activeTool === tool.id ? "is-active" : ""}`}
-                          type="button"
-                          title={translate(tool.label, language)}
-                          aria-label={translate(tool.label, language)}
-                          onClick={() => {
-                            setActiveTool(tool.id);
-                            setIsToolDockCollapsed(false);
-                          }}
-                        >
-                          <Icon size={15} aria-hidden="true" />
-                        </button>
-                      );
-                    })}
-                  </div>
+                  renderToolSideRail()
                 ) : (
                   <>
-                    <div className="tool-panel-heading">
-                      <div>
-                        <p className="eyebrow">{text.tools.eyebrow}</p>
-                        <h2>{translate(activeToolDefinition.label, language)}</h2>
-                      </div>
-                      <div className="tool-panel-actions">
+                    {renderToolSideRail()}
+                    <div className="tool-panel">
+                      <div className="tool-panel-heading">
+                        <div>
+                          <p className="eyebrow">{text.tools.eyebrow}</p>
+                          <h2>{translate(activeToolDefinition.label, language)}</h2>
+                        </div>
                         <span className={`state-badge state-badge--${hostStatusTone[selectedHost.status]}`}>
                           {text.hosts.statusLabels[selectedHost.status]}
                         </span>
-                        <button
-                          className="icon-button"
-                          type="button"
-                          title={text.tools.collapsePanel}
-                          aria-label={text.tools.collapsePanel}
-                          onClick={() => setIsToolDockCollapsed(true)}
-                        >
-                          <PanelRightClose size={15} aria-hidden="true" />
-                        </button>
                       </div>
-                    </div>
 
-                    {renderActiveToolPanel()}
+                      {renderActiveToolPanel()}
+                    </div>
                   </>
                 )}
               </aside>
