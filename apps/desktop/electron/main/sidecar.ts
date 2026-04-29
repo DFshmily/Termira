@@ -17,6 +17,7 @@ type BackendStatus = {
   protocolVersion?: string;
   backendVersion?: string;
   logDir: string;
+  configDir: string;
   lastError?: string;
 };
 
@@ -66,7 +67,8 @@ export class SidecarManager {
   constructor() {
     this.status = {
       state: "offline",
-      logDir: this.resolveLogDir()
+      logDir: this.resolveLogDir(),
+      configDir: this.resolveConfigDir()
     };
   }
 
@@ -89,15 +91,18 @@ export class SidecarManager {
 
     this.status = {
       ...this.status,
-      logDir: this.resolveLogDir()
+      logDir: this.resolveLogDir(),
+      configDir: this.resolveConfigDir()
     };
     fs.mkdirSync(this.status.logDir, { recursive: true });
+    fs.mkdirSync(this.status.configDir, { recursive: true });
 
     const launch = this.resolveLaunchCommand();
     this.status = {
       state: "starting",
       startedAt: new Date().toISOString(),
-      logDir: this.status.logDir
+      logDir: this.status.logDir,
+      configDir: this.status.configDir
     };
     this.emitSyntheticEvent("backend.starting", { command: launch.command });
 
@@ -105,7 +110,8 @@ export class SidecarManager {
       cwd: launch.cwd,
       env: {
         ...process.env,
-        TERMIRA_LOG_DIR: this.status.logDir
+        TERMIRA_LOG_DIR: this.status.logDir,
+        TERMIRA_CONFIG_DIR: this.status.configDir
       },
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -339,6 +345,14 @@ export class SidecarManager {
     }
 
     return path.join(os.homedir(), "Library", "Application Support", "Termira", "logs");
+  }
+
+  private resolveConfigDir(): string {
+    if (app?.isReady()) {
+      return app.getPath("userData");
+    }
+
+    return path.join(os.homedir(), "Library", "Application Support", "Termira");
   }
 
   private emitSyntheticEvent(event: string, payload: unknown): void {

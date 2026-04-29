@@ -13,7 +13,9 @@ import {
   FolderOpen,
   Gauge,
   HardDrive,
+  KeyRound,
   Loader2,
+  Lock,
   Maximize2,
   MoreHorizontal,
   Network,
@@ -33,6 +35,7 @@ import {
   Square,
   Star,
   Terminal,
+  Unlock,
   Upload,
   X,
   Zap
@@ -45,6 +48,7 @@ import {
   LANGUAGE_OPTIONS,
   type AppLanguage
 } from "../i18n/messages";
+import type { FormEvent } from "react";
 
 type ActiveView = "hosts" | "settings";
 type ToolPanelId = "files" | "forwards" | "monitor" | "processes" | "commands";
@@ -67,6 +71,57 @@ type HostItem = {
   favorite: boolean;
   recent: boolean;
   status: ConnectionState;
+};
+
+type BackendHostProfile = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  groupId?: string;
+  groupName?: string;
+  tags: string[];
+  note?: string;
+  auth: {
+    type: "password" | "privateKey" | "keyboardInteractive";
+    credentialRef?: string;
+    privateKeyPath?: string;
+    saveCredential: boolean;
+  };
+  defaultRemotePath?: string;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastConnectedAt?: string;
+};
+
+type VaultStatus = {
+  initialized: boolean;
+  locked: boolean;
+  mode?: "local-key" | "master-password";
+  schemaVersion: number;
+  credentialCount: number;
+  kdfName?: string;
+  cipherName?: string;
+  vaultPath?: string;
+};
+
+type HostFormState = {
+  name: string;
+  host: string;
+  port: string;
+  username: string;
+  groupName: string;
+  tags: string;
+  note: string;
+  defaultRemotePath: string;
+  authType: "password" | "privateKey" | "keyboardInteractive";
+  privateKeyPath: string;
+  saveCredential: boolean;
+  password: string;
+  passphrase: string;
+  favorite: boolean;
 };
 
 type TerminalSession = {
@@ -140,82 +195,22 @@ type QuickCommand = {
 
 const LANGUAGE_STORAGE_KEY = "termira.ui.language";
 
-const hosts: HostItem[] = [
-  {
-    id: "prod-api-01",
-    name: { "zh-CN": "生产 API 01", "en-US": "Production API 01" },
-    group: { "zh-CN": "生产环境", "en-US": "Production" },
-    host: "10.0.8.12",
-    user: "ubuntu",
-    identity: "termira-prod.pem",
-    port: 22,
-    remotePath: "/srv/termira/api/current/releases/2026-04-29/logs",
-    note: { "zh-CN": "核心业务 API，默认打开日志目录。", "en-US": "Core API, opens logs by default." },
-    lastConnected: { "zh-CN": "今天 10:18", "en-US": "Today 10:18" },
-    tags: [
-      { "zh-CN": "常用", "en-US": "Pinned" },
-      { "zh-CN": "跳板机", "en-US": "Bastion" }
-    ],
-    favorite: true,
-    recent: true,
-    status: "connected"
-  },
-  {
-    id: "staging-web",
-    name: { "zh-CN": "预发 Web", "en-US": "Staging Web" },
-    group: { "zh-CN": "预发环境", "en-US": "Staging" },
-    host: "172.16.4.20",
-    user: "deploy",
-    identity: "termira-staging",
-    port: 22,
-    remotePath: "/var/www/termira-preview/current",
-    note: { "zh-CN": "预发布站点与灰度验证。", "en-US": "Preview site and canary checks." },
-    lastConnected: { "zh-CN": "昨天 18:42", "en-US": "Yesterday 18:42" },
-    tags: [{ "zh-CN": "Web", "en-US": "Web" }],
-    favorite: true,
-    recent: true,
-    status: "connecting"
-  },
-  {
-    id: "dev-box",
-    name: { "zh-CN": "开发机", "en-US": "Dev Box" },
-    group: { "zh-CN": "个人服务器", "en-US": "Personal" },
-    host: "192.168.31.56",
-    user: "df",
-    identity: "id_ed25519",
-    port: 22,
-    remotePath: "/Users/df/workspace/termira",
-    note: { "zh-CN": "本地开发与构建缓存。", "en-US": "Local development and build cache." },
-    lastConnected: { "zh-CN": "周一 09:06", "en-US": "Mon 09:06" },
-    tags: [{ "zh-CN": "本地", "en-US": "Local" }],
-    favorite: false,
-    recent: true,
-    status: "disconnected"
-  },
-  {
-    id: "ops-long-name",
-    name: {
-      "zh-CN": "日志归档与链路追踪节点-上海三区-超长主机名回归样例",
-      "en-US": "Log Archive and Tracing Node Shanghai Zone Three Long Name Regression"
-    },
-    group: { "zh-CN": "运维工具", "en-US": "Operations" },
-    host: "10.88.120.205",
-    user: "observability",
-    identity: "ops-observability-ed25519",
-    port: 22022,
-    remotePath:
-      "/data/observability/archive/2026/04/29/service-with-a-very-long-path-for-layout-regression/current",
-    note: { "zh-CN": "用于验证长主机名、长路径和标签截断。", "en-US": "Validates long host, path, and tag truncation." },
-    lastConnected: { "zh-CN": "上周五 22:14", "en-US": "Last Fri 22:14" },
-    tags: [
-      { "zh-CN": "观测", "en-US": "Observability" },
-      { "zh-CN": "长名称", "en-US": "Long name" }
-    ],
-    favorite: false,
-    recent: false,
-    status: "failed"
-  }
-];
+const defaultHostForm: HostFormState = {
+  name: "",
+  host: "",
+  port: "22",
+  username: "",
+  groupName: "",
+  tags: "",
+  note: "",
+  defaultRemotePath: "",
+  authType: "password",
+  privateKeyPath: "",
+  saveCredential: false,
+  password: "",
+  passphrase: "",
+  favorite: false
+};
 
 const toolDefinitions: ToolDefinition[] = [
   { id: "files", label: { "zh-CN": "SFTP", "en-US": "SFTP" }, icon: FolderOpen },
@@ -412,12 +407,24 @@ export function App() {
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
   const [processSearch, setProcessSearch] = useState("");
-  const [selectedHostId, setSelectedHostId] = useState(hosts[0].id);
+  const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-current");
   const [closedTerminalTabIds, setClosedTerminalTabIds] = useState<string[]>([]);
+  const [hostProfiles, setHostProfiles] = useState<BackendHostProfile[]>([]);
+  const [isHostLoading, setIsHostLoading] = useState(true);
+  const [hostError, setHostError] = useState<string | null>(null);
+  const [isHostEditorOpen, setIsHostEditorOpen] = useState(false);
+  const [hostForm, setHostForm] = useState<HostFormState>(defaultHostForm);
+  const [isSavingHost, setIsSavingHost] = useState(false);
+  const [hostFormError, setHostFormError] = useState<string | null>(null);
+  const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  const [vaultMasterPassword, setVaultMasterPassword] = useState("");
+  const [isVaultBusy, setIsVaultBusy] = useState(false);
 
   const text = getMessages(language);
-  const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0];
+  const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile)), [hostProfiles]);
+  const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0] ?? createPlaceholderHost(language);
   const terminalTabs = useMemo<TerminalSession[]>(() => {
     const tabs = [
       {
@@ -462,9 +469,9 @@ export function App() {
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
 
-  const favoriteHosts = useMemo(() => hosts.filter((host) => host.favorite), []);
-  const recentHosts = useMemo(() => hosts.filter((host) => host.recent), []);
-  const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hostSearch, language]);
+  const favoriteHosts = useMemo(() => hosts.filter((host) => host.favorite), [hosts]);
+  const recentHosts = useMemo(() => hosts.filter((host) => host.recent), [hosts]);
+  const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
   const visibleFavoriteHosts = useMemo(
     () => filterHosts(favoriteHosts, hostSearch, language),
     [favoriteHosts, hostSearch, language]
@@ -488,6 +495,149 @@ export function App() {
     document.documentElement.lang = language;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   }, [language]);
+
+  useEffect(() => {
+    void refreshProfiles();
+    void refreshVaultStatus();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedHostId && hosts.length > 0) {
+      setSelectedHostId(hosts[0].id);
+    }
+    if (selectedHostId && hosts.length > 0 && !hosts.some((host) => host.id === selectedHostId)) {
+      setSelectedHostId(hosts[0].id);
+    }
+  }, [hosts, selectedHostId]);
+
+  async function refreshProfiles() {
+    setIsHostLoading(true);
+    setHostError(null);
+    try {
+      const profiles = await window.termira.invoke<BackendHostProfile[]>("profile.list", {});
+      setHostProfiles(profiles);
+    } catch (error) {
+      setHostError(errorMessage(error));
+    } finally {
+      setIsHostLoading(false);
+    }
+  }
+
+  async function refreshVaultStatus() {
+    setVaultError(null);
+    try {
+      const status = await window.termira.invoke<VaultStatus>("vault.status", {});
+      setVaultStatus(status);
+    } catch (error) {
+      setVaultError(errorMessage(error));
+    }
+  }
+
+  async function saveHost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSavingHost(true);
+    setHostFormError(null);
+
+    try {
+      const port = Number.parseInt(hostForm.port, 10);
+      if (!hostForm.name.trim() || !hostForm.host.trim() || !hostForm.username.trim() || !Number.isInteger(port)) {
+        throw new Error(text.hostEditor.validation);
+      }
+
+      let credentialRef: string | undefined;
+      const shouldSaveCredential =
+        hostForm.saveCredential &&
+        (hostForm.password.trim().length > 0 || hostForm.passphrase.trim().length > 0);
+
+      if (shouldSaveCredential) {
+        let status = vaultStatus ?? (await window.termira.invoke<VaultStatus>("vault.status", {}));
+        if (!status.initialized) {
+          status = await window.termira.invoke<VaultStatus>("vault.init", { mode: "local-key" });
+        }
+        if (status.locked) {
+          throw new Error(text.hostEditor.vaultLocked);
+        }
+        const credential = await window.termira.invoke<{ credentialId: string }>("credential.save", {
+          type: hostForm.authType,
+          password: hostForm.authType === "privateKey" ? undefined : hostForm.password,
+          passphrase: hostForm.authType === "privateKey" ? hostForm.passphrase : undefined,
+          privateKeyContent: undefined
+        });
+        credentialRef = credential.credentialId;
+        setVaultStatus(status);
+      }
+
+      await window.termira.invoke<BackendHostProfile>("profile.create", {
+        name: hostForm.name.trim(),
+        host: hostForm.host.trim(),
+        port,
+        username: hostForm.username.trim(),
+        groupName: hostForm.groupName.trim() || undefined,
+        tags: splitTags(hostForm.tags),
+        note: hostForm.note.trim() || undefined,
+        defaultRemotePath: hostForm.defaultRemotePath.trim() || undefined,
+        favorite: hostForm.favorite,
+        auth: {
+          type: hostForm.authType,
+          credentialRef,
+          privateKeyPath: hostForm.authType === "privateKey" ? hostForm.privateKeyPath.trim() || undefined : undefined,
+          saveCredential: Boolean(credentialRef)
+        }
+      });
+
+      setHostForm(defaultHostForm);
+      setIsHostEditorOpen(false);
+      await refreshProfiles();
+      await refreshVaultStatus();
+    } catch (error) {
+      setHostFormError(errorMessage(error));
+    } finally {
+      setIsSavingHost(false);
+    }
+  }
+
+  async function initLocalVault() {
+    await runVaultAction(() => window.termira.invoke<VaultStatus>("vault.init", { mode: "local-key" }));
+  }
+
+  async function initMasterVault() {
+    await runVaultAction(() =>
+      window.termira.invoke<VaultStatus>("vault.init", {
+        mode: "master-password",
+        masterPassword: vaultMasterPassword
+      })
+    );
+    setVaultMasterPassword("");
+  }
+
+  async function unlockVault() {
+    await runVaultAction(() => window.termira.invoke<VaultStatus>("vault.unlock", { masterPassword: vaultMasterPassword }));
+    setVaultMasterPassword("");
+  }
+
+  async function lockVault() {
+    await runVaultAction(() => window.termira.invoke<VaultStatus>("vault.lock", {}));
+  }
+
+  async function runVaultAction(action: () => Promise<VaultStatus>) {
+    setIsVaultBusy(true);
+    setVaultError(null);
+    try {
+      const status = await action();
+      setVaultStatus(status);
+    } catch (error) {
+      setVaultError(errorMessage(error));
+    } finally {
+      setIsVaultBusy(false);
+    }
+  }
+
+  function setHostFormField<Field extends keyof HostFormState>(field: Field, value: HostFormState[Field]) {
+    setHostForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }
 
   function selectHost(hostId: string) {
     setSelectedHostId(hostId);
@@ -908,10 +1058,31 @@ export function App() {
               />
             </label>
 
-            <button className="button button--accent navigator-action" type="button">
+            <button
+              className="button button--accent navigator-action"
+              type="button"
+              onClick={() => {
+                setHostForm(defaultHostForm);
+                setHostFormError(null);
+                setIsHostEditorOpen(true);
+              }}
+            >
               <Plus size={16} aria-hidden="true" />
               <span>{text.hosts.newHost}</span>
             </button>
+
+            {isHostLoading ? (
+              <div className="inline-state">
+                <Loader2 className="spin-icon" size={15} aria-hidden="true" />
+                <span>{text.hosts.loading}</span>
+              </div>
+            ) : null}
+            {hostError ? (
+              <div className="inline-state inline-state--error">
+                <AlertTriangle size={15} aria-hidden="true" />
+                <span>{hostError}</span>
+              </div>
+            ) : null}
 
             <nav className="host-sections" aria-label={text.hosts.sidebarTitle}>
               <section className="host-section">
@@ -1087,10 +1258,212 @@ export function App() {
                   </div>
                 </div>
               </div>
+
+              <div className="workspace-panel" id="security">
+                <div className="panel-heading">
+                  <div>
+                    <p className="eyebrow">{text.settings.security}</p>
+                    <h2>{text.vault.title}</h2>
+                  </div>
+                  <span className={`state-badge state-badge--${vaultStatus?.locked ? "warn" : vaultStatus?.initialized ? "good" : "muted"}`}>
+                    {vaultStatus?.initialized
+                      ? vaultStatus.locked
+                        ? text.vault.locked
+                        : text.vault.unlocked
+                      : text.vault.notInitialized}
+                  </span>
+                </div>
+
+                <div className="vault-grid">
+                  <div className="vault-summary">
+                    <KeyRound size={18} aria-hidden="true" />
+                    <div>
+                      <span>{text.vault.mode}</span>
+                      <strong>{formatVaultMode(vaultStatus, text)}</strong>
+                    </div>
+                    <div>
+                      <span>{text.vault.credentialCount}</span>
+                      <strong>{vaultStatus?.credentialCount ?? 0}</strong>
+                    </div>
+                    <div>
+                      <span>{text.vault.cipher}</span>
+                      <strong>{vaultStatus?.cipherName ?? "-"}</strong>
+                    </div>
+                  </div>
+
+                  <div className="vault-actions">
+                    <button className="button button--compact" type="button" disabled={isVaultBusy} onClick={initLocalVault}>
+                      <KeyRound size={14} aria-hidden="true" />
+                      <span>{text.vault.initLocal}</span>
+                    </button>
+                    <label className="form-field form-field--inline">
+                      <span>{text.vault.masterPassword}</span>
+                      <input
+                        type="password"
+                        value={vaultMasterPassword}
+                        onChange={(event) => setVaultMasterPassword(event.target.value)}
+                      />
+                    </label>
+                    <button className="button button--compact" type="button" disabled={isVaultBusy} onClick={initMasterVault}>
+                      <ShieldCheck size={14} aria-hidden="true" />
+                      <span>{text.vault.initMaster}</span>
+                    </button>
+                    <button className="button button--compact" type="button" disabled={isVaultBusy} onClick={unlockVault}>
+                      <Unlock size={14} aria-hidden="true" />
+                      <span>{text.vault.unlock}</span>
+                    </button>
+                    <button className="button button--compact" type="button" disabled={isVaultBusy} onClick={lockVault}>
+                      <Lock size={14} aria-hidden="true" />
+                      <span>{text.vault.lock}</span>
+                    </button>
+                  </div>
+
+                  {vaultError ? (
+                    <div className="inline-state inline-state--error">
+                      <AlertTriangle size={15} aria-hidden="true" />
+                      <span>{vaultError}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </section>
           </section>
         )}
       </section>
+      {isHostEditorOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <form className="host-editor" onSubmit={saveHost}>
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">{text.hostEditor.eyebrow}</p>
+                <h2>{text.hostEditor.title}</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                title={text.hostEditor.close}
+                aria-label={text.hostEditor.close}
+                onClick={() => setIsHostEditorOpen(false)}
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="host-editor-grid">
+              <label className="form-field">
+                <span>{text.hostEditor.name}</span>
+                <input value={hostForm.name} onChange={(event) => setHostFormField("name", event.target.value)} autoFocus />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.group}</span>
+                <input value={hostForm.groupName} onChange={(event) => setHostFormField("groupName", event.target.value)} />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.host}</span>
+                <input value={hostForm.host} onChange={(event) => setHostFormField("host", event.target.value)} />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.port}</span>
+                <input inputMode="numeric" value={hostForm.port} onChange={(event) => setHostFormField("port", event.target.value)} />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.username}</span>
+                <input value={hostForm.username} onChange={(event) => setHostFormField("username", event.target.value)} />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.path}</span>
+                <input
+                  value={hostForm.defaultRemotePath}
+                  onChange={(event) => setHostFormField("defaultRemotePath", event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.tags}</span>
+                <input value={hostForm.tags} onChange={(event) => setHostFormField("tags", event.target.value)} />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.privateKeyPath}</span>
+                <input
+                  value={hostForm.privateKeyPath}
+                  disabled={hostForm.authType !== "privateKey"}
+                  onChange={(event) => setHostFormField("privateKeyPath", event.target.value)}
+                />
+              </label>
+              <label className="form-field form-field--wide">
+                <span>{text.hostEditor.note}</span>
+                <input value={hostForm.note} onChange={(event) => setHostFormField("note", event.target.value)} />
+              </label>
+            </div>
+
+            <div className="segmented-control" aria-label={text.hostEditor.authType}>
+              {(["password", "privateKey", "keyboardInteractive"] as const).map((authType) => (
+                <button
+                  key={authType}
+                  className={hostForm.authType === authType ? "is-active" : undefined}
+                  type="button"
+                  onClick={() => setHostFormField("authType", authType)}
+                >
+                  {text.hostEditor.authTypes[authType]}
+                </button>
+              ))}
+            </div>
+
+            <div className="host-editor-grid">
+              <label className="form-field">
+                <span>{text.hostEditor.password}</span>
+                <input
+                  type="password"
+                  value={hostForm.password}
+                  disabled={hostForm.authType !== "password"}
+                  onChange={(event) => setHostFormField("password", event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>{text.hostEditor.passphrase}</span>
+                <input
+                  type="password"
+                  value={hostForm.passphrase}
+                  disabled={hostForm.authType !== "privateKey"}
+                  onChange={(event) => setHostFormField("passphrase", event.target.value)}
+                />
+              </label>
+              <label className="toggle-field">
+                <input
+                  type="checkbox"
+                  checked={hostForm.saveCredential}
+                  onChange={(event) => setHostFormField("saveCredential", event.target.checked)}
+                />
+                <span>{text.hostEditor.saveCredential}</span>
+              </label>
+              <label className="toggle-field">
+                <input
+                  type="checkbox"
+                  checked={hostForm.favorite}
+                  onChange={(event) => setHostFormField("favorite", event.target.checked)}
+                />
+                <span>{text.hostEditor.favorite}</span>
+              </label>
+            </div>
+
+            {hostFormError ? (
+              <div className="inline-state inline-state--error">
+                <AlertTriangle size={15} aria-hidden="true" />
+                <span>{hostFormError}</span>
+              </div>
+            ) : null}
+
+            <div className="modal-actions">
+              <button className="button" type="button" onClick={() => setIsHostEditorOpen(false)}>
+                <span>{text.hostEditor.cancel}</span>
+              </button>
+              <button className="button button--accent" type="submit" disabled={isSavingHost}>
+                {isSavingHost ? <Loader2 className="spin-icon" size={15} aria-hidden="true" /> : <Plus size={15} aria-hidden="true" />}
+                <span>{isSavingHost ? text.hostEditor.saving : text.hostEditor.save}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -1099,7 +1472,64 @@ function translate(value: LocalizedText, language: AppLanguage): string {
   return value[language];
 }
 
+function profileToHostItem(profile: BackendHostProfile): HostItem {
+  const groupName = profile.groupName || "未分组";
+  const lastConnected = profile.lastConnectedAt ?? "-";
+  const identity =
+    profile.auth.type === "privateKey"
+      ? profile.auth.privateKeyPath || profile.auth.credentialRef || "private key"
+      : profile.auth.credentialRef
+        ? "vault credential"
+        : profile.auth.type;
+
+  return {
+    id: profile.id,
+    name: toLocalized(profile.name),
+    group: toLocalized(groupName),
+    host: profile.host,
+    user: profile.username,
+    identity,
+    port: profile.port,
+    remotePath: profile.defaultRemotePath || "~",
+    note: toLocalized(profile.note || ""),
+    lastConnected: toLocalized(lastConnected),
+    tags: profile.tags.map(toLocalized),
+    favorite: profile.favorite,
+    recent: Boolean(profile.lastConnectedAt),
+    status: "disconnected"
+  };
+}
+
+function createPlaceholderHost(_language: AppLanguage): HostItem {
+  return {
+    id: "__placeholder",
+    name: { "zh-CN": "未选择主机", "en-US": "No host selected" },
+    group: { "zh-CN": "本地配置", "en-US": "Local profiles" },
+    host: "0.0.0.0",
+    user: "-",
+    identity: "-",
+    port: 22,
+    remotePath: "~",
+    note: { "zh-CN": "", "en-US": "" },
+    lastConnected: { "zh-CN": "-", "en-US": "-" },
+    tags: [],
+    favorite: false,
+    recent: false,
+    status: "disconnected"
+  };
+}
+
+function toLocalized(value: string): LocalizedText {
+  return {
+    "zh-CN": value,
+    "en-US": value
+  };
+}
+
 function formatHostAddress(host: HostItem): string {
+  if (host.id === "__placeholder") {
+    return host.host;
+  }
   return `${host.user}@${host.host}`;
 }
 
@@ -1141,6 +1571,30 @@ function getForwardTone(status: ForwardRule["status"]): StatusTone {
     default:
       return assertNever(status);
   }
+}
+
+function splitTags(value: string): string[] {
+  return value
+    .split(/[,\s，]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function formatVaultMode(status: VaultStatus | null, text: ReturnType<typeof getMessages>): string {
+  if (!status?.initialized) {
+    return text.vault.notInitialized;
+  }
+  if (status.mode === "master-password") {
+    return text.vault.masterMode;
+  }
+  if (status.mode === "local-key") {
+    return text.vault.localMode;
+  }
+  return "-";
 }
 
 function assertNever(value: never): never {

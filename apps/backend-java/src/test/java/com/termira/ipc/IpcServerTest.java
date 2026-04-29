@@ -12,9 +12,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class IpcServerTest {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @TempDir
+    Path tempDir;
 
     @BeforeAll
     static void setLogDirectory() throws IOException {
@@ -34,7 +38,7 @@ class IpcServerTest {
         IpcServer server = new IpcServer(
                 new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)),
                 output,
-                new MethodRouter()
+                new MethodRouter(tempDir)
         );
 
         int code = server.run();

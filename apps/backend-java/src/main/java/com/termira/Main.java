@@ -3,6 +3,7 @@ package com.termira;
 import com.termira.ipc.IpcEvent;
 import com.termira.ipc.IpcServer;
 import com.termira.ipc.MethodRouter;
+import com.termira.config.ConfigPaths;
 import com.termira.logging.LogPaths;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,12 +24,17 @@ public final class Main {
         Logger logger = LoggerFactory.getLogger(Main.class);
         logger.info("Termira Java sidecar starting logDir={}", logDir);
 
-        MethodRouter router = new MethodRouter();
+        Path configDir = ConfigPaths.resolve();
+        Files.createDirectories(configDir);
+        logger.info("Termira Java sidecar configDir={}", configDir);
+
+        MethodRouter router = new MethodRouter(configDir);
         IpcServer server = new IpcServer(System.in, System.out, router);
         server.emit(IpcEvent.create("backend.ready", Map.of(
                 "protocolVersion", MethodRouter.PROTOCOL_VERSION,
                 "backendVersion", MethodRouter.BACKEND_VERSION,
-                "pid", ProcessHandle.current().pid()
+                "pid", ProcessHandle.current().pid(),
+                "configDir", configDir.toString()
         )));
 
         int exitCode = server.run();

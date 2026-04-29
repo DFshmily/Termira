@@ -17,6 +17,7 @@
         <assertj.version>3.27.3</assertj.version>
         <slf4j.version>2.0.16</slf4j.version>
         <logback.version>1.5.16</logback.version>
+        <sqlite.version>3.45.3.0</sqlite.version>
     </properties>
 
     <dependencies>
@@ -39,6 +40,11 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite.version}</version>
         </dependency>
 
         <dependency>

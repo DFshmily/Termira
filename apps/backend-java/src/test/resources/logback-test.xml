@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="TERMIRA_TEST_LOG_DIR" value="${termira.log.dir:-target/test-logs}" />
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${TERMIRA_TEST_LOG_DIR}/backend-test.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="FILE" />
+    </root>
+</configuration>

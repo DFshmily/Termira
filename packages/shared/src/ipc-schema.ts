@@ -49,6 +49,7 @@ export type BackendStatus = {
   protocolVersion?: string;
   backendVersion?: string;
   logDir: string;
+  configDir: string;
   lastError?: string;
 };
 
