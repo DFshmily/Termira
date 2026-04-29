@@ -1155,9 +1155,11 @@ export function App() {
     }
   }
 
-  function selectHost(hostId: string) {
+  function selectHost(hostId: string, options: { preserveView?: boolean } = {}) {
     setSelectedHostId(hostId);
-    setActiveView("hosts");
+    if (!options.preserveView) {
+      setActiveView("hosts");
+    }
   }
 
   function closeTerminalTab(tabId: string) {
@@ -1384,7 +1386,7 @@ export function App() {
     void openTerminalForHost(host, reusableTabId, { dedupeOpening: !reusableTabId });
   }
 
-  function renderHostCards(items: HostItem[]) {
+  function renderHostCards(items: HostItem[], options: { embedded?: boolean } = {}) {
     if (items.length === 0) {
       return <p className="empty-copy">{text.hosts.empty}</p>;
     }
@@ -1403,7 +1405,7 @@ export function App() {
             className="host-card-main"
             type="button"
             title={text.hosts.doubleClickConnect}
-            onClick={() => selectHost(host.id)}
+            onClick={() => selectHost(host.id, { preserveView: options.embedded })}
             onDoubleClick={(event) => {
               event.stopPropagation();
               openHostFromHostList(host);
@@ -1509,7 +1511,7 @@ export function App() {
             <h2>{text.hosts.homeTitle}</h2>
             <span>{text.hosts.hostCount(visibleHosts.length)}</span>
           </div>
-          <div className="host-card-grid">{renderHostCards(visibleHosts)}</div>
+          <div className="host-card-grid">{renderHostCards(visibleHosts, { embedded: options.embedded })}</div>
         </section>
       </section>
     );
