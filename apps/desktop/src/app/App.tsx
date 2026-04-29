@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal as XTermTerminal, type IDisposable } from "@xterm/xterm";
+import { Terminal as XTermTerminal, type IDisposable, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
@@ -14,6 +14,7 @@ import {
   Loader2,
   Lock,
   Maximize2,
+  Minus,
   Network,
   PanelRightClose,
   PanelRightOpen,
@@ -44,10 +45,12 @@ import {
 import type { FormEvent } from "react";
 
 type ActiveView = "hosts" | "terminal" | "settings";
-type ToolPanelId = "files" | "forwards" | "monitor" | "processes" | "commands";
+type ToolPanelId = "themes" | "files" | "forwards" | "monitor" | "processes" | "commands";
 type ConnectionState = "connected" | "connecting" | "disconnected" | "failed" | "timeout";
 type StatusTone = "good" | "warn" | "bad" | "muted";
 type LocalizedText = Record<AppLanguage, string>;
+type TerminalThemeId = "pro" | "ocean" | "dracula" | "monokai" | "solarized-dark" | "solarized-light" | "red-sands" | "man-page" | "novel";
+type TerminalFontId = "source-code-pro" | "sf-mono" | "menlo" | "monaco" | "consolas" | "jetbrains-mono";
 
 type HostItem = {
   id: string;
@@ -179,7 +182,33 @@ type QuickCommand = {
   disabled?: boolean;
 };
 
+type TerminalThemeDefinition = {
+  id: TerminalThemeId;
+  name: string;
+  palette: ITheme;
+  preview: {
+    background: string;
+    foreground: string;
+    muted: string;
+    accent: string;
+    directory: string;
+  };
+};
+
+type TerminalFontOption = {
+  id: TerminalFontId;
+  name: string;
+  stack: string;
+};
+
 const LANGUAGE_STORAGE_KEY = "termira.ui.language";
+const TERMINAL_THEME_STORAGE_KEY = "termira.terminal.theme";
+const TERMINAL_FONT_STORAGE_KEY = "termira.terminal.font";
+const TERMINAL_FONT_SIZE_STORAGE_KEY = "termira.terminal.fontSize";
+const DEFAULT_TERMINAL_FONT_ID: TerminalFontId = "source-code-pro";
+const DEFAULT_TERMINAL_FONT_SIZE = 14;
+const MIN_TERMINAL_FONT_SIZE = 10;
+const MAX_TERMINAL_FONT_SIZE = 24;
 
 const defaultHostForm: HostFormState = {
   name: "",
@@ -199,6 +228,7 @@ const defaultHostForm: HostFormState = {
 };
 
 const toolDefinitions: ToolDefinition[] = [
+  { id: "themes", label: { "zh-CN": "主题", "en-US": "Themes" }, icon: Palette },
   { id: "files", label: { "zh-CN": "SFTP", "en-US": "SFTP" }, icon: FolderOpen },
   { id: "forwards", label: { "zh-CN": "转发", "en-US": "Forwarding" }, icon: Network },
   { id: "monitor", label: { "zh-CN": "监控", "en-US": "Monitor" }, icon: BarChart3 },
@@ -239,6 +269,343 @@ const hostStatusTone: Record<ConnectionState, StatusTone> = {
   timeout: "bad"
 };
 
+const terminalThemes: TerminalThemeDefinition[] = [
+  {
+    id: "pro",
+    name: "Pro",
+    palette: {
+      background: "#000000",
+      foreground: "#f5f5f5",
+      cursor: "#f2f2f2",
+      selectionBackground: "#333333",
+      black: "#000000",
+      red: "#ef4444",
+      green: "#32d74b",
+      yellow: "#facc15",
+      blue: "#0066ff",
+      magenta: "#ff5fd2",
+      cyan: "#22d3ee",
+      white: "#d7d7d7",
+      brightBlack: "#666666",
+      brightRed: "#ff6b6b",
+      brightGreen: "#63e66d",
+      brightYellow: "#fff176",
+      brightBlue: "#4d8dff",
+      brightMagenta: "#ff8add",
+      brightCyan: "#67e8f9",
+      brightWhite: "#ffffff"
+    },
+    preview: {
+      background: "#000000",
+      foreground: "#f5f5f5",
+      muted: "#9ca3af",
+      accent: "#32d74b",
+      directory: "#0066ff"
+    }
+  },
+  {
+    id: "ocean",
+    name: "Ocean",
+    palette: {
+      background: "#102a55",
+      foreground: "#eef6ff",
+      cursor: "#eaf2ff",
+      selectionBackground: "#2f67bf",
+      black: "#07142b",
+      red: "#ff6b80",
+      green: "#6ee7b7",
+      yellow: "#f8d66d",
+      blue: "#8ab4ff",
+      magenta: "#c4a7ff",
+      cyan: "#67e8f9",
+      white: "#dbeafe",
+      brightBlack: "#5573a4",
+      brightRed: "#ff8fa0",
+      brightGreen: "#a7f3d0",
+      brightYellow: "#fde68a",
+      brightBlue: "#bfdbfe",
+      brightMagenta: "#ddd6fe",
+      brightCyan: "#a5f3fc",
+      brightWhite: "#ffffff"
+    },
+    preview: {
+      background: "#2859bf",
+      foreground: "#eaf2ff",
+      muted: "#a9c2ee",
+      accent: "#6ee7b7",
+      directory: "#8ab4ff"
+    }
+  },
+  {
+    id: "dracula",
+    name: "Dracula",
+    palette: {
+      background: "#282a36",
+      foreground: "#f8f8f2",
+      cursor: "#f8f8f2",
+      selectionBackground: "#44475a",
+      black: "#21222c",
+      red: "#ff5555",
+      green: "#50fa7b",
+      yellow: "#f1fa8c",
+      blue: "#bd93f9",
+      magenta: "#ff79c6",
+      cyan: "#8be9fd",
+      white: "#f8f8f2",
+      brightBlack: "#6272a4",
+      brightRed: "#ff6e6e",
+      brightGreen: "#69ff94",
+      brightYellow: "#ffffa5",
+      brightBlue: "#d6acff",
+      brightMagenta: "#ff92df",
+      brightCyan: "#a4ffff",
+      brightWhite: "#ffffff"
+    },
+    preview: {
+      background: "#282a36",
+      foreground: "#f8f8f2",
+      muted: "#9aa5ce",
+      accent: "#50fa7b",
+      directory: "#bd93f9"
+    }
+  },
+  {
+    id: "monokai",
+    name: "Monokai",
+    palette: {
+      background: "#0f0f0f",
+      foreground: "#f8f8f2",
+      cursor: "#f8f8f0",
+      selectionBackground: "#49483e",
+      black: "#272822",
+      red: "#f92672",
+      green: "#a6e22e",
+      yellow: "#f4bf75",
+      blue: "#66d9ef",
+      magenta: "#ae81ff",
+      cyan: "#a1efe4",
+      white: "#f8f8f2",
+      brightBlack: "#75715e",
+      brightRed: "#ff6188",
+      brightGreen: "#a9dc76",
+      brightYellow: "#ffd866",
+      brightBlue: "#78dce8",
+      brightMagenta: "#ab9df2",
+      brightCyan: "#a1efe4",
+      brightWhite: "#ffffff"
+    },
+    preview: {
+      background: "#151515",
+      foreground: "#f8f8f2",
+      muted: "#a59f85",
+      accent: "#a6e22e",
+      directory: "#66d9ef"
+    }
+  },
+  {
+    id: "solarized-dark",
+    name: "Solarized Dark",
+    palette: {
+      background: "#002b36",
+      foreground: "#839496",
+      cursor: "#93a1a1",
+      selectionBackground: "#073642",
+      black: "#073642",
+      red: "#dc322f",
+      green: "#859900",
+      yellow: "#b58900",
+      blue: "#268bd2",
+      magenta: "#d33682",
+      cyan: "#2aa198",
+      white: "#eee8d5",
+      brightBlack: "#002b36",
+      brightRed: "#cb4b16",
+      brightGreen: "#586e75",
+      brightYellow: "#657b83",
+      brightBlue: "#839496",
+      brightMagenta: "#6c71c4",
+      brightCyan: "#93a1a1",
+      brightWhite: "#fdf6e3"
+    },
+    preview: {
+      background: "#002b36",
+      foreground: "#93a1a1",
+      muted: "#586e75",
+      accent: "#859900",
+      directory: "#268bd2"
+    }
+  },
+  {
+    id: "solarized-light",
+    name: "Solarized Light",
+    palette: {
+      background: "#fdf6e3",
+      foreground: "#657b83",
+      cursor: "#586e75",
+      selectionBackground: "#eee8d5",
+      black: "#073642",
+      red: "#dc322f",
+      green: "#859900",
+      yellow: "#b58900",
+      blue: "#268bd2",
+      magenta: "#d33682",
+      cyan: "#2aa198",
+      white: "#eee8d5",
+      brightBlack: "#002b36",
+      brightRed: "#cb4b16",
+      brightGreen: "#586e75",
+      brightYellow: "#657b83",
+      brightBlue: "#839496",
+      brightMagenta: "#6c71c4",
+      brightCyan: "#93a1a1",
+      brightWhite: "#fdf6e3"
+    },
+    preview: {
+      background: "#fdf6e3",
+      foreground: "#586e75",
+      muted: "#93a1a1",
+      accent: "#859900",
+      directory: "#268bd2"
+    }
+  },
+  {
+    id: "red-sands",
+    name: "Red Sands",
+    palette: {
+      background: "#3b1816",
+      foreground: "#f7e4d3",
+      cursor: "#f7e4d3",
+      selectionBackground: "#6d2c28",
+      black: "#2b1110",
+      red: "#ef4444",
+      green: "#4ade80",
+      yellow: "#f3c96b",
+      blue: "#f59e8b",
+      magenta: "#fb7185",
+      cyan: "#f4a261",
+      white: "#f7e4d3",
+      brightBlack: "#8a4a41",
+      brightRed: "#fb7185",
+      brightGreen: "#86efac",
+      brightYellow: "#fde68a",
+      brightBlue: "#fca5a5",
+      brightMagenta: "#f9a8d4",
+      brightCyan: "#fdba74",
+      brightWhite: "#fff7ed"
+    },
+    preview: {
+      background: "#8b2c26",
+      foreground: "#f7e4d3",
+      muted: "#d7a38b",
+      accent: "#4ade80",
+      directory: "#fdba74"
+    }
+  },
+  {
+    id: "man-page",
+    name: "Man Page",
+    palette: {
+      background: "#fff59d",
+      foreground: "#1e1e12",
+      cursor: "#1e1e12",
+      selectionBackground: "#d8cc55",
+      black: "#1e1e12",
+      red: "#b91c1c",
+      green: "#166534",
+      yellow: "#92400e",
+      blue: "#1d4ed8",
+      magenta: "#7e22ce",
+      cyan: "#0f766e",
+      white: "#fef9c3",
+      brightBlack: "#57534e",
+      brightRed: "#dc2626",
+      brightGreen: "#16a34a",
+      brightYellow: "#b45309",
+      brightBlue: "#2563eb",
+      brightMagenta: "#9333ea",
+      brightCyan: "#0d9488",
+      brightWhite: "#fffde7"
+    },
+    preview: {
+      background: "#fff59d",
+      foreground: "#1e1e12",
+      muted: "#605d24",
+      accent: "#84cc16",
+      directory: "#1d4ed8"
+    }
+  },
+  {
+    id: "novel",
+    name: "Novel",
+    palette: {
+      background: "#f4ead7",
+      foreground: "#3b2b25",
+      cursor: "#3b2b25",
+      selectionBackground: "#decfb5",
+      black: "#3b2b25",
+      red: "#8f2f2d",
+      green: "#15803d",
+      yellow: "#8a5a22",
+      blue: "#355c7d",
+      magenta: "#6d4c5f",
+      cyan: "#317873",
+      white: "#f4ead7",
+      brightBlack: "#7b6a5d",
+      brightRed: "#a9443f",
+      brightGreen: "#22a357",
+      brightYellow: "#a16207",
+      brightBlue: "#4f759b",
+      brightMagenta: "#8b5e7a",
+      brightCyan: "#40938d",
+      brightWhite: "#fffaf0"
+    },
+    preview: {
+      background: "#f4ead7",
+      foreground: "#3b2b25",
+      muted: "#8c7a69",
+      accent: "#15803d",
+      directory: "#355c7d"
+    }
+  }
+];
+
+const terminalThemesById = new Map(terminalThemes.map((theme) => [theme.id, theme]));
+
+const terminalFontOptions: TerminalFontOption[] = [
+  {
+    id: "source-code-pro",
+    name: "Source Code Pro",
+    stack: '"Source Code Pro", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+  },
+  {
+    id: "sf-mono",
+    name: "SF Mono",
+    stack: '"SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
+  },
+  {
+    id: "menlo",
+    name: "Menlo",
+    stack: 'Menlo, "SFMono-Regular", Monaco, Consolas, "Liberation Mono", monospace'
+  },
+  {
+    id: "monaco",
+    name: "Monaco",
+    stack: 'Monaco, Menlo, "SFMono-Regular", Consolas, "Liberation Mono", monospace'
+  },
+  {
+    id: "consolas",
+    name: "Consolas",
+    stack: 'Consolas, "Liberation Mono", Menlo, Monaco, monospace'
+  },
+  {
+    id: "jetbrains-mono",
+    name: "JetBrains Mono",
+    stack: '"JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+  }
+];
+
+const terminalFontOptionsById = new Map(terminalFontOptions.map((font) => [font.id, font]));
+
 export function App() {
   const [language, setLanguage] = useState<AppLanguage>(() => {
     const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
@@ -246,6 +613,17 @@ export function App() {
   });
   const [activeView, setActiveView] = useState<ActiveView>("hosts");
   const [activeTool, setActiveTool] = useState<ToolPanelId>("files");
+  const [terminalThemeId, setTerminalThemeId] = useState<TerminalThemeId>(() => {
+    const stored = window.localStorage.getItem(TERMINAL_THEME_STORAGE_KEY);
+    return isTerminalThemeId(stored) ? stored : "pro";
+  });
+  const [terminalFontId, setTerminalFontId] = useState<TerminalFontId>(() => {
+    const stored = window.localStorage.getItem(TERMINAL_FONT_STORAGE_KEY);
+    return isTerminalFontId(stored) ? stored : DEFAULT_TERMINAL_FONT_ID;
+  });
+  const [terminalFontSize, setTerminalFontSize] = useState(() =>
+    parseTerminalFontSize(window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY))
+  );
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
   const [hostSearch, setHostSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
@@ -289,7 +667,10 @@ export function App() {
   const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
   const activeTerminalHostLabel = activeTerminalHost.id === "__placeholder" ? text.terminal.noHost : formatHostAddress(activeTerminalHost);
+  const newTerminalHost = activeTerminalHost.id !== "__placeholder" ? activeTerminalHost : selectedHost;
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
+  const terminalTheme = terminalThemesById.get(terminalThemeId) ?? terminalThemes[0];
+  const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
 
   const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
   const isHostsHome = activeView === "hosts";
@@ -348,16 +729,11 @@ export function App() {
         allowProposedApi: false,
         cursorBlink: true,
         convertEol: true,
-        fontFamily: "SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace",
-        fontSize: 13,
+        fontFamily: terminalFont.stack,
+        fontSize: terminalFontSize,
         lineHeight: 1.35,
         scrollback: 3000,
-        theme: {
-          background: "#080b0d",
-          foreground: "#d5f8ee",
-          cursor: "#42c5ad",
-          selectionBackground: "#214d47"
-        }
+        theme: terminalTheme.palette
       });
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
@@ -384,13 +760,33 @@ export function App() {
       }
       pendingTerminalOutputRef.current.delete(tabId);
     },
-    [fitAndResizeTerminal]
+    [fitAndResizeTerminal, terminalFont.stack, terminalFontSize, terminalTheme.palette]
   );
 
   useEffect(() => {
     document.documentElement.lang = language;
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
   }, [language]);
+
+  useEffect(() => {
+    window.localStorage.setItem(TERMINAL_THEME_STORAGE_KEY, terminalTheme.id);
+    for (const entry of xtermEntriesRef.current.values()) {
+      entry.terminal.options.theme = terminalTheme.palette;
+      entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+    }
+  }, [terminalTheme]);
+
+  useEffect(() => {
+    window.localStorage.setItem(TERMINAL_FONT_STORAGE_KEY, terminalFont.id);
+    window.localStorage.setItem(TERMINAL_FONT_SIZE_STORAGE_KEY, String(terminalFontSize));
+    for (const [tabId, entry] of xtermEntriesRef.current) {
+      entry.terminal.options.fontFamily = terminalFont.stack;
+      entry.terminal.options.fontSize = terminalFontSize;
+      entry.fitAddon.fit();
+      entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+      fitAndResizeTerminal(tabId);
+    }
+  }, [fitAndResizeTerminal, terminalFont, terminalFontSize]);
 
   useEffect(() => {
     terminalTabsRef.current = terminalTabs;
@@ -429,9 +825,9 @@ export function App() {
         return;
       }
 
-      const tab = terminalTabsRef.current.find(
-        (item) => item.channelId === output.channelId || item.sessionId === output.sessionId
-      );
+      const tab =
+        terminalTabsRef.current.find((item) => item.channelId === output.channelId) ??
+        terminalTabsRef.current.find((item) => !item.channelId && item.sessionId === output.sessionId);
       if (!tab) {
         return;
       }
@@ -502,6 +898,10 @@ export function App() {
     const resizeActiveTerminal = () => {
       if (activeTerminal.id !== "tab-preview") {
         fitAndResizeTerminal(activeTerminal.id);
+        const entry = xtermEntriesRef.current.get(activeTerminal.id);
+        if (entry) {
+          entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+        }
       }
     };
     window.addEventListener("resize", resizeActiveTerminal);
@@ -509,6 +909,28 @@ export function App() {
 
     return () => window.removeEventListener("resize", resizeActiveTerminal);
   }, [activeTerminal.id, fitAndResizeTerminal, isToolDockCollapsed]);
+
+  useEffect(() => {
+    if (activeTerminal.id === "tab-preview") {
+      return;
+    }
+
+    const firstFrame = window.requestAnimationFrame(() => {
+      const entry = xtermEntriesRef.current.get(activeTerminal.id);
+      if (!entry) {
+        return;
+      }
+      fitAndResizeTerminal(activeTerminal.id);
+      entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+
+      window.requestAnimationFrame(() => {
+        entry.terminal.refresh(0, Math.max(0, entry.terminal.rows - 1));
+        entry.terminal.focus();
+      });
+    });
+
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [activeTerminal.id, fitAndResizeTerminal]);
 
   useEffect(
     () => () => {
@@ -756,28 +1178,25 @@ export function App() {
     }
   }
 
-  async function openTerminalForHost(host: HostItem, existingTabId?: string) {
-    if (host.id === "__placeholder" || host.status === "connecting") {
+  async function openTerminalForHost(
+    host: HostItem,
+    existingTabId?: string,
+    options: { dedupeOpening?: boolean } = {}
+  ) {
+    if (host.id === "__placeholder") {
       return;
     }
 
-    const existingLiveTab = terminalTabsRef.current.find(
-      (tab) => tab.hostId === host.id && (tab.status === "connected" || tab.status === "connecting")
-    );
-    if (!existingTabId && existingLiveTab) {
-      setActiveTerminalTabId(existingLiveTab.id);
-      setActiveView("terminal");
-      return;
-    }
-
+    const shouldDedupeOpening = options.dedupeOpening === true && !existingTabId;
     const openingTabId = openingHostTabIdsRef.current.get(host.id);
-    if (!existingTabId && openingTabId) {
+    if (shouldDedupeOpening && openingTabId) {
+      setSelectedHostId(host.id);
       setActiveTerminalTabId(openingTabId);
       setActiveView("terminal");
       return;
     }
 
-    const tabId = existingTabId && existingTabId !== "tab-preview" ? existingTabId : `tab_${Date.now()}`;
+    const tabId = existingTabId && existingTabId !== "tab-preview" ? existingTabId : createTerminalTabId();
     const currentTab = terminalTabsRef.current.find((tab) => tab.id === tabId);
     if (currentTab?.status === "connected" || currentTab?.status === "connecting") {
       setActiveTerminalTabId(currentTab.id);
@@ -798,9 +1217,11 @@ export function App() {
       status: "connecting"
     };
 
-    openingHostTabIdsRef.current.set(host.id, tabId);
     setSelectedHostId(host.id);
     setTerminalError(null);
+    if (shouldDedupeOpening) {
+      openingHostTabIdsRef.current.set(host.id, tabId);
+    }
     const nextTabs = [...terminalTabsRef.current.filter((tab) => tab.id !== tabId), nextTab];
     terminalTabsRef.current = nextTabs;
     setTerminalTabs(nextTabs);
@@ -810,8 +1231,25 @@ export function App() {
     const entry = xtermEntriesRef.current.get(tabId);
     entry?.terminal.reset();
 
+    let createdSessionId: string | undefined;
+    let createdChannelId: string | undefined;
+
     try {
       const session = await window.termira.invoke<SshSessionView>("ssh.connect", { profileId: host.id });
+      createdSessionId = session.sessionId;
+      const sessionBoundTabs: TerminalSession[] = terminalTabsRef.current.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              sessionId: session.sessionId,
+              status: "connecting",
+              error: undefined
+            }
+          : tab
+      );
+      terminalTabsRef.current = sessionBoundTabs;
+      setTerminalTabs(sessionBoundTabs);
+
       const dimensions = terminalDimensions(tabId, xtermEntriesRef.current);
       const shell = await window.termira.invoke<TerminalOpenResult>("terminal.openShell", {
         sessionId: session.sessionId,
@@ -819,24 +1257,31 @@ export function App() {
         rows: dimensions.rows,
         term: "xterm-256color"
       });
+      createdChannelId = shell.channelId;
 
-      setTerminalTabs((current) => {
-        const updated: TerminalSession[] = current.map((tab) =>
-          tab.id === tabId
-            ? {
-                ...tab,
-                sessionId: session.sessionId,
-                channelId: shell.channelId,
-                status: "connected",
-                error: undefined
-              }
-            : tab
-        );
-        terminalTabsRef.current = updated;
-        return updated;
-      });
+      const shellBoundTabs: TerminalSession[] = terminalTabsRef.current.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              sessionId: session.sessionId,
+              channelId: shell.channelId,
+              status: "connected",
+              error: undefined
+            }
+          : tab
+      );
+      terminalTabsRef.current = shellBoundTabs;
+      setTerminalTabs(shellBoundTabs);
       fitAndResizeTerminal(tabId);
     } catch (error) {
+      if (createdSessionId && createdChannelId) {
+        await window.termira
+          .invoke("terminal.close", { sessionId: createdSessionId, channelId: createdChannelId })
+          .catch(() => undefined);
+      }
+      if (createdSessionId) {
+        await window.termira.invoke("ssh.disconnect", { sessionId: createdSessionId }).catch(() => undefined);
+      }
       const message = errorMessage(error);
       setTerminalError(message);
       setTerminalTabs((current) => {
@@ -854,7 +1299,7 @@ export function App() {
       });
       xtermEntriesRef.current.get(tabId)?.terminal.writeln(`\r\n${message}`);
     } finally {
-      if (openingHostTabIdsRef.current.get(host.id) === tabId) {
+      if (shouldDedupeOpening && openingHostTabIdsRef.current.get(host.id) === tabId) {
         openingHostTabIdsRef.current.delete(host.id);
       }
     }
@@ -865,7 +1310,7 @@ export function App() {
   }
 
   async function openNewTerminalTab() {
-    await openTerminalForHost(selectedHost);
+    await openTerminalForHost(newTerminalHost);
   }
 
   async function disconnectActiveTerminal() {
@@ -937,7 +1382,7 @@ export function App() {
             onClick={() => selectHost(host.id)}
             onDoubleClick={(event) => {
               event.stopPropagation();
-              void openTerminalForHost(host);
+              void openTerminalForHost(host, undefined, { dedupeOpening: true });
             }}
           >
             <span className={`host-card-icon host-row-icon--${tone}`}>
@@ -995,7 +1440,12 @@ export function App() {
               onChange={(event) => setHostSearch(event.target.value)}
             />
           </label>
-          <button className="button button--compact" type="button" disabled={!canConnectSelected} onClick={() => openTerminalForHost(selectedHost)}>
+          <button
+            className="button button--compact"
+            type="button"
+            disabled={!canConnectSelected}
+            onClick={() => openTerminalForHost(selectedHost, undefined, { dedupeOpening: true })}
+          >
             <Play size={14} aria-hidden="true" />
             <span>{text.hosts.connectSelected}</span>
           </button>
@@ -1006,7 +1456,12 @@ export function App() {
             <Plus size={15} aria-hidden="true" />
             <span>{text.hosts.newHost}</span>
           </button>
-          <button className="button button--compact" type="button" disabled={!canConnectSelected} onClick={() => openTerminalForHost(selectedHost)}>
+          <button
+            className="button button--compact"
+            type="button"
+            disabled={!canConnectSelected}
+            onClick={() => openTerminalForHost(selectedHost, undefined, { dedupeOpening: true })}
+          >
             <Terminal size={15} aria-hidden="true" />
             <span>{text.terminal.tabLabel}</span>
           </button>
@@ -1114,8 +1569,96 @@ export function App() {
     );
   }
 
+  function renderThemesPanel() {
+    return (
+      <div className="tool-content tool-content--themes">
+        <section className="terminal-settings" aria-label={text.tools.terminalSettings.font}>
+          <label className="terminal-setting-field">
+            <span>{text.tools.terminalSettings.fontFamily}</span>
+            <select
+              value={terminalFont.id}
+              aria-label={text.tools.terminalSettings.fontFamily}
+              onChange={(event) => {
+                const nextFontId = event.currentTarget.value;
+                if (isTerminalFontId(nextFontId)) {
+                  setTerminalFontId(nextFontId);
+                }
+              }}
+            >
+              {terminalFontOptions.map((font) => (
+                <option key={font.id} value={font.id}>
+                  {font.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="terminal-setting-row">
+            <span>{text.tools.terminalSettings.textSize}</span>
+            <div className="font-size-stepper">
+              <button
+                type="button"
+                title={text.tools.terminalSettings.decreaseTextSize}
+                aria-label={text.tools.terminalSettings.decreaseTextSize}
+                disabled={terminalFontSize <= MIN_TERMINAL_FONT_SIZE}
+                onClick={() => setTerminalFontSize((size) => clampTerminalFontSize(size - 1))}
+              >
+                <Minus size={16} aria-hidden="true" />
+              </button>
+              <input
+                type="number"
+                min={MIN_TERMINAL_FONT_SIZE}
+                max={MAX_TERMINAL_FONT_SIZE}
+                value={terminalFontSize}
+                aria-label={text.tools.terminalSettings.sizeInput}
+                onChange={(event) => setTerminalFontSize(parseTerminalFontSize(event.currentTarget.value))}
+              />
+              <button
+                type="button"
+                title={text.tools.terminalSettings.increaseTextSize}
+                aria-label={text.tools.terminalSettings.increaseTextSize}
+                disabled={terminalFontSize >= MAX_TERMINAL_FONT_SIZE}
+                onClick={() => setTerminalFontSize((size) => clampTerminalFontSize(size + 1))}
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <div className="theme-list" role="listbox" aria-label={text.tools.themes.title}>
+          {terminalThemes.map((theme) => (
+            <button
+              key={theme.id}
+              className={`theme-option ${terminalTheme.id === theme.id ? "is-active" : ""}`}
+              type="button"
+              role="option"
+              aria-selected={terminalTheme.id === theme.id}
+              onClick={() => setTerminalThemeId(theme.id)}
+            >
+              <span className="theme-preview" style={{ background: theme.preview.background }}>
+                <span style={{ background: theme.preview.foreground }} />
+                <span style={{ background: theme.preview.muted }} />
+                <span style={{ background: theme.preview.foreground }} />
+                <span style={{ background: theme.preview.accent }} />
+                <span style={{ background: theme.preview.directory }} />
+                <span style={{ background: theme.preview.foreground }} />
+              </span>
+              <span className="theme-option-copy">
+                <strong>{theme.name}</strong>
+                <small>{terminalTheme.id === theme.id ? text.tools.themes.active : text.tools.themes.apply}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function renderActiveToolPanel() {
     switch (activeTool) {
+      case "themes":
+        return renderThemesPanel();
       case "files":
         return renderFilesPanel();
       case "forwards":
@@ -1258,7 +1801,7 @@ export function App() {
                       title={text.terminal.newTab}
                       aria-label={text.terminal.newTab}
                       onClick={openNewTerminalTab}
-                      disabled={selectedHost.id === "__placeholder" || selectedHost.status === "connecting"}
+                      disabled={newTerminalHost.id === "__placeholder"}
                     >
                       <Plus size={14} aria-hidden="true" />
                     </button>
@@ -1326,16 +1869,18 @@ export function App() {
                 ) : (
                   <>
                     {renderToolSideRail()}
-                    <div className="tool-panel">
-                      <div className="tool-panel-heading">
-                        <div>
-                          <p className="eyebrow">{text.tools.eyebrow}</p>
-                          <h2>{translate(activeToolDefinition.label, language)}</h2>
+                    <div className={`tool-panel ${activeTool === "themes" ? "tool-panel--settings" : ""}`}>
+                      {activeTool !== "themes" ? (
+                        <div className="tool-panel-heading">
+                          <div>
+                            <p className="eyebrow">{text.tools.eyebrow}</p>
+                            <h2>{translate(activeToolDefinition.label, language)}</h2>
+                          </div>
+                          <span className={`state-badge state-badge--${hostStatusTone[selectedHost.status]}`}>
+                            {text.hosts.statusLabels[selectedHost.status]}
+                          </span>
                         </div>
-                        <span className={`state-badge state-badge--${hostStatusTone[selectedHost.status]}`}>
-                          {text.hosts.statusLabels[selectedHost.status]}
-                        </span>
-                      </div>
+                      ) : null}
 
                       {renderActiveToolPanel()}
                     </div>
@@ -1772,11 +2317,32 @@ function terminalDimensions(tabId: string, entries: Map<string, XTermEntry>): { 
   };
 }
 
+function createTerminalTabId(): string {
+  return `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function splitTags(value: string): string[] {
   return value
     .split(/[,\s，]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function isTerminalThemeId(value: string | null): value is TerminalThemeId {
+  return terminalThemes.some((theme) => theme.id === value);
+}
+
+function isTerminalFontId(value: string | null): value is TerminalFontId {
+  return terminalFontOptions.some((font) => font.id === value);
+}
+
+function parseTerminalFontSize(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampTerminalFontSize(parsed) : DEFAULT_TERMINAL_FONT_SIZE;
+}
+
+function clampTerminalFontSize(value: number): number {
+  return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(value)));
 }
 
 function errorMessage(error: unknown): string {

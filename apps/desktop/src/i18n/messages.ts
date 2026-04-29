@@ -101,6 +101,19 @@ export const messages = {
       eyebrow: "会话工具",
       collapsePanel: "折叠工具面板",
       expandPanel: "展开工具面板",
+      themes: {
+        title: "终端主题",
+        active: "当前主题",
+        apply: "应用"
+      },
+      terminalSettings: {
+        font: "字体",
+        fontFamily: "字体",
+        textSize: "字号",
+        decreaseTextSize: "减小字号",
+        increaseTextSize: "增大字号",
+        sizeInput: "终端字号"
+      },
       files: {
         unavailable: "SFTP 将在阶段 4 接入真实远程文件能力。",
         toolbar: "文件工具栏",
@@ -298,6 +311,19 @@ export const messages = {
       eyebrow: "Session tools",
       collapsePanel: "Collapse tool panel",
       expandPanel: "Expand tool panel",
+      themes: {
+        title: "Terminal themes",
+        active: "Active",
+        apply: "Apply"
+      },
+      terminalSettings: {
+        font: "Font",
+        fontFamily: "Font",
+        textSize: "Text size",
+        decreaseTextSize: "Decrease text size",
+        increaseTextSize: "Increase text size",
+        sizeInput: "Terminal text size"
+      },
       files: {
         unavailable: "SFTP will be wired to real remote files in stage 4.",
         toolbar: "File toolbar",
