@@ -29,6 +29,7 @@ import java.util.concurrent.ThreadFactory;
 import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.common.DisconnectReason;
 import net.schmizz.sshj.common.SSHException;
+import net.schmizz.sshj.sftp.SFTPClient;
 import net.schmizz.sshj.transport.TransportException;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
 import net.schmizz.sshj.userauth.UserAuthException;
@@ -112,6 +113,22 @@ public final class SshSessionManager implements AutoCloseable {
 
     public SshSessionView getSession(String sessionId) throws AppError {
         return requireSession(sessionId).view();
+    }
+
+    public SFTPClient openSftpClient(String sessionId) throws AppError {
+        SshSessionHandle handle = requireSession(sessionId);
+        if (handle.status() != SshStatus.CONNECTED || !handle.client().isConnected()) {
+            throw new AppError(ErrorCode.SFTP_NOT_CONNECTED, "SSH session is not connected.", Map.of("sessionId", sessionId));
+        }
+        try {
+            return handle.client().newSFTPClient();
+        } catch (IOException error) {
+            throw new AppError(
+                    ErrorCode.SFTP_NOT_CONNECTED,
+                    "Failed to open SFTP client.",
+                    Map.of("sessionId", sessionId, "cause", error.getClass().getSimpleName())
+            );
+        }
     }
 
     public Map<String, Object> openShell(TerminalOpenShellRequest request) throws AppError {

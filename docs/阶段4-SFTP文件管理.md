@@ -1,0 +1,69 @@
+# 阶段 4：SFTP 文件管理
+
+按照 `docs/开发文档.md` 的 3.5 要求，本阶段接入真实 SFTP 文件管理能力。SFTP 基于已连接 SSH session 创建 client，和终端 channel 共享 SSH 连接但独立失败处理。
+
+## 本阶段交付
+
+- 后端新增 `SftpManager`，支持目录打开、列表、上传、下载、删除、重命名、新建目录和取消传输。
+- IPC 新增 `sftp.open`、`sftp.list`、`sftp.upload`、`sftp.download`、`sftp.remove`、`sftp.rename`、`sftp.mkdir`、`sftp.cancelTransfer`。
+- 事件新增并接入 `sftp.listUpdated`、`transfer.progress`、`transfer.completed`、`transfer.failed`。
+- 前端右侧 SFTP 面板接入真实远程文件列表，显示名称、大小、修改时间、权限。
+- 前端支持上级目录、刷新、上传、下载、新建目录、重命名、删除确认、传输取消和失败重试。
+- `packages/shared` 补充 SFTP IPC 和传输队列类型。
+
+## 后端实现
+
+新增模块位于 `apps/backend-java/src/main/java/com/termira/sftp`：
+
+- `SftpManager`：按需从 `SshSessionManager` 获取 SFTP client，执行文件操作。
+- 请求/响应 record：`SftpOpenRequest`、`SftpListRequest`、`SftpUploadRequest`、`SftpDownloadRequest`、`SftpRemoveRequest`、`SftpRenameRequest`、`SftpMkdirRequest`、`SftpCancelTransferRequest`、`SftpOpenResult`、`SftpListResult`、`SftpFileEntry`、`TransferView`。
+
+传输队列使用单线程 executor：
+
+- 上传/下载 IPC 立即返回 `transferId`。
+- 传输过程通过 SSHJ `TransferListener` 周期性推送进度。
+- 取消时标记任务并让进度回调中断传输。
+- 单个传输失败只发送 `transfer.failed`，不关闭 SSH session 或终端 channel。
+
+新增错误码：
+
+- `SFTP_NOT_CONNECTED`
+- `SFTP_PERMISSION_DENIED`
+- `SFTP_PATH_NOT_FOUND`
+- `SFTP_OPERATION_FAILED`
+- `SFTP_TRANSFER_FAILED`
+- `SFTP_TRANSFER_CANCELLED`
+- `SFTP_TRANSFER_NOT_FOUND`
+- `SFTP_VALIDATION_FAILED`
+
+## 前端实现
+
+右侧工具区的 SFTP 面板从占位态切换为真实文件管理：
+
+- 已连接终端时自动打开当前会话默认路径。
+- 双击目录进入目录，工具栏可返回上级和刷新。
+- 上传使用 Electron preload 暴露的 `webUtils.getPathForFile` 获取本地路径。
+- 下载使用用户输入的本地目标路径，默认提示 `~/Downloads/<文件名>`。
+- 删除前使用确认框。
+- 传输队列展示 queued、running、completed、failed、cancelled 状态，失败或取消后可重试。
+
+## 验证记录
+
+本地验证：
+
+- `npm run typecheck -w apps/desktop`：通过。
+- `npm run typecheck -w packages/shared`：通过。
+- `mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml test`：通过，未配置真实服务器环境变量时 E2E 自动跳过。
+
+真实服务器验证：
+
+- 使用测试服务器执行 `SftpManagerE2ETest` 和 `SshSessionManagerE2ETest`：通过。
+- 覆盖 SSH 登录、交互终端命令、SFTP 建目录、上传、下载内容校验、重命名、删除。
+- 测试创建的远程临时目录在 finally 清理，不保留测试文件。
+
+## 当前限制
+
+- 本阶段不实现本地双栏文件管理器。
+- 本阶段不实现远程文件在线编辑。
+- 本阶段不实现断点续传。
+- 下载目标路径先使用轻量 prompt，后续可接入 Electron 原生保存对话框。

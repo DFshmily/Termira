@@ -537,6 +537,16 @@ h2 {
   border-color: rgba(239, 125, 115, 0.38);
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .hosts-home {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -1377,6 +1387,15 @@ h2 {
   gap: var(--space-2);
 }
 
+.icon-toolbar .icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.icon-button--danger {
+  color: var(--color-danger);
+}
+
 .file-table,
 .process-table {
   display: grid;
@@ -1388,7 +1407,7 @@ h2 {
 
 .file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 132px;
+  grid-template-columns: minmax(0, 1fr) 72px 112px 58px;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
@@ -1414,6 +1433,11 @@ h2 {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.file-row.is-active {
+  color: var(--color-text);
+  background: rgba(66, 197, 173, 0.1);
+}
+
 .file-row--head,
 .process-row--head {
   min-height: 34px;
@@ -1422,6 +1446,17 @@ h2 {
   font-weight: 700;
   text-transform: uppercase;
   background: rgba(0, 0, 0, 0.15);
+}
+
+.file-row--state {
+  grid-template-columns: minmax(0, 1fr);
+  cursor: default;
+}
+
+.file-row--state span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .file-row span,
@@ -1436,6 +1471,11 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.file-name svg {
+  flex: 0 0 auto;
+  color: var(--color-accent-strong);
 }
 
 .subpanel {
@@ -1497,6 +1537,9 @@ h2 {
 }
 
 .queue-main span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   flex: 1 1 auto;
 }
 
@@ -1529,6 +1572,40 @@ h2 {
 .rule-card--failed .progress-track span,
 .metric-card--bad .progress-track span {
   background: var(--color-danger);
+}
+
+.queue-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-2);
+}
+
+.queue-foot small,
+.queue-error {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.queue-foot > span {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  color: var(--color-accent-strong);
+}
+
+.queue-foot .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.queue-error {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--color-danger);
 }
 
 .rule-card {
@@ -2161,8 +2238,13 @@ h2 {
     grid-template-columns: minmax(0, 1fr) 64px;
   }
 
-  .file-row span:last-child {
+  .file-row span:nth-child(3),
+  .file-row span:nth-child(4) {
     display: none;
+  }
+
+  .file-row--state {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .monitor-summary,

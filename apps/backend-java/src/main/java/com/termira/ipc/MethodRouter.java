@@ -10,6 +10,15 @@ import com.termira.profile.HostGroupInput;
 import com.termira.profile.HostProfileInput;
 import com.termira.profile.ProfileStore;
 import com.termira.profile.QuickCommandInput;
+import com.termira.sftp.SftpCancelTransferRequest;
+import com.termira.sftp.SftpDownloadRequest;
+import com.termira.sftp.SftpListRequest;
+import com.termira.sftp.SftpManager;
+import com.termira.sftp.SftpMkdirRequest;
+import com.termira.sftp.SftpOpenRequest;
+import com.termira.sftp.SftpRemoveRequest;
+import com.termira.sftp.SftpRenameRequest;
+import com.termira.sftp.SftpUploadRequest;
 import com.termira.ssh.SshConnectRequest;
 import com.termira.ssh.SshDisconnectRequest;
 import com.termira.ssh.SshSessionManager;
@@ -33,6 +42,7 @@ public final class MethodRouter {
     private final ProfileStore profileStore;
     private final VaultManager vaultManager;
     private final SshSessionManager sshSessionManager;
+    private final SftpManager sftpManager;
 
     public MethodRouter() {
         this(ConfigPaths.resolve());
@@ -49,10 +59,12 @@ public final class MethodRouter {
         this.profileStore = profileStore;
         this.vaultManager = vaultManager;
         this.sshSessionManager = new SshSessionManager(profileStore, vaultManager, IpcEventSink.NOOP);
+        this.sftpManager = new SftpManager(sshSessionManager, IpcEventSink.NOOP);
     }
 
     public void setEventSink(IpcEventSink eventSink) {
         sshSessionManager.setEventSink(eventSink);
+        sftpManager.setEventSink(eventSink);
     }
 
     public Object route(IpcRequest request) throws AppError {
@@ -91,12 +103,24 @@ public final class MethodRouter {
             case "credential.delete" -> Map.of("deleted", vaultManager.deleteCredential(requiredString(request.params(), "credentialId")));
             case "credential.testDecrypt" -> Map.of("ok", vaultManager.testDecrypt(requiredString(request.params(), "credentialId")));
             case "ssh.connect" -> sshSessionManager.connect(params(request, SshConnectRequest.class));
-            case "ssh.disconnect" -> sshSessionManager.disconnect(params(request, SshDisconnectRequest.class));
+            case "ssh.disconnect" -> {
+                SshDisconnectRequest disconnectRequest = params(request, SshDisconnectRequest.class);
+                sftpManager.closeSession(disconnectRequest.sessionId());
+                yield sshSessionManager.disconnect(disconnectRequest);
+            }
             case "ssh.getSession" -> sshSessionManager.getSession(requiredString(request.params(), "sessionId"));
             case "terminal.openShell" -> sshSessionManager.openShell(params(request, TerminalOpenShellRequest.class));
             case "terminal.write" -> sshSessionManager.write(params(request, TerminalWriteRequest.class));
             case "terminal.resize" -> sshSessionManager.resize(params(request, TerminalResizeRequest.class));
             case "terminal.close" -> sshSessionManager.closeTerminal(params(request, TerminalCloseRequest.class));
+            case "sftp.open" -> sftpManager.open(params(request, SftpOpenRequest.class));
+            case "sftp.list" -> sftpManager.list(params(request, SftpListRequest.class));
+            case "sftp.upload" -> sftpManager.upload(params(request, SftpUploadRequest.class));
+            case "sftp.download" -> sftpManager.download(params(request, SftpDownloadRequest.class));
+            case "sftp.remove" -> sftpManager.remove(params(request, SftpRemoveRequest.class));
+            case "sftp.rename" -> sftpManager.rename(params(request, SftpRenameRequest.class));
+            case "sftp.mkdir" -> sftpManager.mkdir(params(request, SftpMkdirRequest.class));
+            case "sftp.cancelTransfer" -> sftpManager.cancelTransfer(params(request, SftpCancelTransferRequest.class));
             default -> throw new AppError(
                     ErrorCode.IPC_UNKNOWN_METHOD,
                     "Unknown IPC method: " + request.method(),
@@ -136,6 +160,7 @@ public final class MethodRouter {
     }
 
     private Map<String, Object> shutdown() {
+        sftpManager.close();
         sshSessionManager.close();
         shutdownRequested.set(true);
         return Map.of("accepted", true);

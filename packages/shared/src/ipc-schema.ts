@@ -149,3 +149,92 @@ export type TerminalClosedEvent = {
   sessionId: string;
   channelId: string;
 };
+
+export type SftpOpenParams = {
+  sessionId: string;
+  path?: string;
+};
+
+export type SftpOpenResult = {
+  sessionId: string;
+  path: string;
+  version: number;
+};
+
+export type SftpListParams = {
+  sessionId: string;
+  path?: string;
+};
+
+export type SftpFileEntry = {
+  name: string;
+  path: string;
+  parentPath: string;
+  type: string;
+  size: number;
+  permissions: string;
+  modifiedAt?: string;
+  modifiedTime: number;
+  directory: boolean;
+  regularFile: boolean;
+  symlink: boolean;
+};
+
+export type SftpListResult = {
+  sessionId: string;
+  path: string;
+  parentPath: string;
+  entries: SftpFileEntry[];
+};
+
+export type SftpUploadParams = {
+  sessionId: string;
+  localPath: string;
+  remotePath: string;
+};
+
+export type SftpDownloadParams = {
+  sessionId: string;
+  remotePath: string;
+  localPath: string;
+};
+
+export type SftpRemoveParams = {
+  sessionId: string;
+  path: string;
+  directory?: boolean;
+};
+
+export type SftpRenameParams = {
+  sessionId: string;
+  sourcePath: string;
+  targetPath: string;
+};
+
+export type SftpMkdirParams = {
+  sessionId: string;
+  path: string;
+};
+
+export type SftpCancelTransferParams = {
+  transferId: string;
+};
+
+export type TransferStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export type TransferView = {
+  transferId: string;
+  sessionId: string;
+  direction: "upload" | "download";
+  localPath: string;
+  remotePath: string;
+  fileName: string;
+  status: TransferStatus;
+  bytesTransferred: number;
+  totalBytes: number;
+  percent: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+};

@@ -116,17 +116,38 @@ export const messages = {
         sizeInput: "终端字号"
       },
       files: {
-        unavailable: "SFTP 将在阶段 4 接入真实远程文件能力。",
         toolbar: "文件工具栏",
         list: "远程文件",
         upload: "上传",
         download: "下载",
-        moreDisabled: "选择文件后可用",
+        up: "返回上级",
+        mkdir: "新建目录",
+        rename: "重命名",
+        delete: "删除",
+        cancel: "取消传输",
+        retry: "重试",
         name: "名称",
         size: "大小",
         modified: "修改时间",
+        permissions: "权限",
+        loading: "正在读取远程目录",
+        empty: "目录为空",
+        noSession: "连接终端后可使用 SFTP。",
         queue: "传输队列",
-        queueCount: (count: number) => `${count} 个任务`
+        queueEmpty: "暂无传输任务",
+        queueCount: (count: number) => `${count} 个任务`,
+        mkdirPrompt: "目录名称",
+        renamePrompt: "新名称",
+        downloadPrompt: "下载到本地路径",
+        confirmDelete: (name: string) => `删除「${name}」？`,
+        localPathUnavailable: "无法读取本地文件路径。",
+        transferStatus: {
+          queued: "排队中",
+          running: "传输中",
+          completed: "已完成",
+          failed: "失败",
+          cancelled: "已取消"
+        }
       },
       forwards: {
         unavailable: "端口转发将在阶段 5 接入真实 SSH tunnel。",
@@ -327,17 +348,38 @@ export const messages = {
         sizeInput: "Terminal text size"
       },
       files: {
-        unavailable: "SFTP will be wired to real remote files in stage 4.",
         toolbar: "File toolbar",
         list: "Remote files",
         upload: "Upload",
         download: "Download",
-        moreDisabled: "Available after selecting a file",
+        up: "Go up",
+        mkdir: "New folder",
+        rename: "Rename",
+        delete: "Delete",
+        cancel: "Cancel transfer",
+        retry: "Retry",
         name: "Name",
         size: "Size",
         modified: "Modified",
+        permissions: "Perms",
+        loading: "Loading remote directory",
+        empty: "Directory is empty",
+        noSession: "Connect a terminal to use SFTP.",
         queue: "Transfer queue",
-        queueCount: (count: number) => `${count} tasks`
+        queueEmpty: "No transfer tasks",
+        queueCount: (count: number) => `${count} tasks`,
+        mkdirPrompt: "Folder name",
+        renamePrompt: "New name",
+        downloadPrompt: "Download to local path",
+        confirmDelete: (name: string) => `Delete "${name}"?`,
+        localPathUnavailable: "Unable to read the local file path.",
+        transferStatus: {
+          queued: "Queued",
+          running: "Transferring",
+          completed: "Completed",
+          failed: "Failed",
+          cancelled: "Cancelled"
+        }
       },
       forwards: {
         unavailable: "Port forwarding will be wired to real SSH tunnels in stage 5.",
