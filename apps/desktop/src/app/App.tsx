@@ -251,7 +251,7 @@ export function App() {
   const [activeView, setActiveView] = useState<ActiveView>("hosts");
   const [activeTool, setActiveTool] = useState<ToolPanelId>("files");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(false);
+  const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
   const [hostSearch, setHostSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
@@ -277,7 +277,8 @@ export function App() {
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
   const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
-  const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? hosts[0] ?? createPlaceholderHost(language);
+  const placeholderHost = useMemo(() => createPlaceholderHost(language), [language]);
+  const selectedHost = hosts.find((host) => host.id === selectedHostId) ?? placeholderHost;
   const previewTerminalTab = useMemo<TerminalSession>(
     () => ({
       id: "tab-preview",
@@ -291,6 +292,7 @@ export function App() {
   const visibleTerminalTabs = terminalTabs;
   const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
+  const activeTerminalHostLabel = activeTerminalHost.id === "__placeholder" ? text.terminal.noHost : formatHostAddress(activeTerminalHost);
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
 
   const favoriteHosts = useMemo(() => hosts.filter((host) => host.favorite), [hosts]);
@@ -301,6 +303,7 @@ export function App() {
     [favoriteHosts, hostSearch, language]
   );
   const visibleRecentHosts = useMemo(() => filterHosts(recentHosts, hostSearch, language), [recentHosts, hostSearch, language]);
+  const isHostsHome = activeView === "hosts" && terminalTabs.length === 0;
   const fitAndResizeTerminal = useCallback((tabId: string) => {
     const entry = xtermEntriesRef.current.get(tabId);
     if (!entry) {
@@ -410,11 +413,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedHostId && hosts.length > 0) {
-      setSelectedHostId(hosts[0].id);
-    }
     if (selectedHostId && hosts.length > 0 && !hosts.some((host) => host.id === selectedHostId)) {
-      setSelectedHostId(hosts[0].id);
+      setSelectedHostId("");
     }
   }, [hosts, selectedHostId]);
 
@@ -906,7 +906,7 @@ export function App() {
       return (
         <div
           key={host.id}
-          className={`host-row ${selectedHost.id === host.id ? "is-active" : ""}`}
+          className={`host-row ${selectedHostId === host.id ? "is-active" : ""}`}
         >
           <button
             className="host-row-main"
@@ -949,6 +949,113 @@ export function App() {
         </div>
       );
     });
+  }
+
+  function renderHostCards(items: HostItem[]) {
+    if (items.length === 0) {
+      return <p className="empty-copy">{text.hosts.empty}</p>;
+    }
+
+    return items.map((host) => {
+      const address = formatHostAddress(host);
+      const tone = hostStatusTone[host.status];
+      const isSelected = selectedHostId === host.id;
+
+      return (
+        <article
+          key={host.id}
+          className={`host-card ${isSelected ? "is-active" : ""}`}
+          onClick={() => selectHost(host.id)}
+          onDoubleClick={() => openTerminalForHost(host)}
+        >
+          <button
+            className="host-card-main"
+            type="button"
+            title={text.hosts.doubleClickConnect}
+            onClick={() => selectHost(host.id)}
+            onDoubleClick={() => openTerminalForHost(host)}
+          >
+            <span className={`host-card-icon host-row-icon--${tone}`}>
+              <Server size={18} aria-hidden="true" />
+            </span>
+            <span className="host-card-copy">
+              <strong title={translate(host.name, language)}>{translate(host.name, language)}</strong>
+              <small title={address}>ssh, {host.user}</small>
+            </span>
+            <span className={`host-card-status host-row-status--${tone}`}>{text.hosts.statusLabels[host.status]}</span>
+          </button>
+          <span className="host-card-actions">
+            <button
+              className="host-card-action"
+              type="button"
+              title={text.hosts.editHost}
+              aria-label={text.hosts.editHost}
+              onClick={(event) => {
+                event.stopPropagation();
+                openEditHostEditor(host.id);
+              }}
+            >
+              <Pencil size={14} aria-hidden="true" />
+            </button>
+            <button
+              className="host-card-action host-card-action--danger"
+              type="button"
+              title={text.hosts.deleteHost}
+              aria-label={text.hosts.deleteHost}
+              onClick={(event) => {
+                event.stopPropagation();
+                void deleteHost(host);
+              }}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+            </button>
+          </span>
+        </article>
+      );
+    });
+  }
+
+  function renderHostsHome() {
+    const canConnectSelected = selectedHost.id !== "__placeholder" && selectedHost.status !== "connecting";
+
+    return (
+      <section className="hosts-home" aria-label={text.hosts.sidebarTitle}>
+        <div className="hosts-home-toolbar">
+          <label className="search-box hosts-home-search">
+            <Search size={16} aria-hidden="true" />
+            <input
+              type="search"
+              value={hostSearch}
+              placeholder={text.hosts.searchPlaceholder}
+              onChange={(event) => setHostSearch(event.target.value)}
+            />
+          </label>
+          <button className="button button--compact" type="button" disabled={!canConnectSelected} onClick={() => openTerminalForHost(selectedHost)}>
+            <Play size={14} aria-hidden="true" />
+            <span>{text.hosts.connectSelected}</span>
+          </button>
+        </div>
+
+        <div className="hosts-home-actions">
+          <button className="button button--compact button--accent" type="button" onClick={openCreateHostEditor}>
+            <Plus size={15} aria-hidden="true" />
+            <span>{text.hosts.newHost}</span>
+          </button>
+          <button className="button button--compact" type="button" disabled={!canConnectSelected} onClick={() => openTerminalForHost(selectedHost)}>
+            <Terminal size={15} aria-hidden="true" />
+            <span>{text.terminal.tabLabel}</span>
+          </button>
+        </div>
+
+        <section className="hosts-home-board">
+          <div className="hosts-home-heading">
+            <h2>{text.hosts.homeTitle}</h2>
+            <span>{text.hosts.hostCount(visibleHosts.length)}</span>
+          </div>
+          <div className="host-card-grid">{renderHostCards(visibleHosts)}</div>
+        </section>
+      </section>
+    );
   }
 
   function renderFilesPanel() {
@@ -1090,8 +1197,10 @@ export function App() {
   }
 
   return (
-    <main
+      <main
       className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
+        isHostsHome ? "is-hosts-home" : ""
+      } ${
         isSidebarCollapsed ? "is-nav-collapsed" : ""
       }`}
     >
@@ -1134,7 +1243,7 @@ export function App() {
         </nav>
       </aside>
 
-      {activeView === "hosts" && !isSidebarCollapsed ? (
+      {activeView === "hosts" && !isSidebarCollapsed && !isHostsHome ? (
         <aside className="navigator">
         <div className="navigator-top">
           <div className="brand-lockup">
@@ -1220,6 +1329,9 @@ export function App() {
       <section className="workspace">
         {activeView === "hosts" ? (
           <section className="workspace-view">
+            {terminalTabs.length === 0 ? (
+              renderHostsHome()
+            ) : (
             <section className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""}`}>
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
@@ -1262,7 +1374,7 @@ export function App() {
                   </div>
                   <div className="terminal-pane">
                     <div className="terminal-toolbar">
-                      <span title={formatHostAddress(activeTerminalHost)}>{formatHostAddress(activeTerminalHost)}</span>
+                      <span title={activeTerminalHostLabel}>{activeTerminalHostLabel}</span>
                       <div className="terminal-toolbar-actions">
                         <span>{text.terminal.mockBadge}</span>
                         <span className={`state-badge state-badge--${hostStatusTone[activeTerminal.status]}`}>
@@ -1340,6 +1452,7 @@ export function App() {
                 )}
               </aside>
             </section>
+            )}
           </section>
         ) : (
           <section className="settings-shell">
