@@ -44,7 +44,19 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -270,10 +282,18 @@ const HOST_PICKER_HOST_ID = "__host_picker";
 const TERMINAL_THEME_STORAGE_KEY = "termira.terminal.theme";
 const TERMINAL_FONT_STORAGE_KEY = "termira.terminal.font";
 const TERMINAL_FONT_SIZE_STORAGE_KEY = "termira.terminal.fontSize";
+const TOOL_DOCK_WIDTH_STORAGE_KEY = "termira.layout.toolDockWidth";
+const SFTP_QUEUE_HEIGHT_STORAGE_KEY = "termira.layout.sftpQueueHeight";
 const DEFAULT_TERMINAL_FONT_ID: TerminalFontId = "source-code-pro";
 const DEFAULT_TERMINAL_FONT_SIZE = 14;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 24;
+const DEFAULT_TOOL_DOCK_WIDTH = 432;
+const MIN_TOOL_DOCK_WIDTH = 380;
+const MAX_TOOL_DOCK_WIDTH = 760;
+const DEFAULT_SFTP_QUEUE_HEIGHT = 168;
+const MIN_SFTP_QUEUE_HEIGHT = 88;
+const MAX_SFTP_QUEUE_HEIGHT = 380;
 
 const defaultHostForm: HostFormState = {
   name: "",
@@ -689,6 +709,14 @@ export function App() {
   const [terminalFontSize, setTerminalFontSize] = useState(() =>
     parseTerminalFontSize(window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY))
   );
+  const [toolDockWidth, setToolDockWidth] = useState(() =>
+    parseToolDockWidth(window.localStorage.getItem(TOOL_DOCK_WIDTH_STORAGE_KEY))
+  );
+  const [sftpQueueHeight, setSftpQueueHeight] = useState(() =>
+    parseSftpQueueHeight(window.localStorage.getItem(SFTP_QUEUE_HEIGHT_STORAGE_KEY))
+  );
+  const [isToolDockResizing, setIsToolDockResizing] = useState(false);
+  const [isSftpQueueResizing, setIsSftpQueueResizing] = useState(false);
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
   const [isTerminalMaximized, setIsTerminalMaximized] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
@@ -733,6 +761,8 @@ export function App() {
   const newSftpDirectoryInputRef = useRef<HTMLInputElement | null>(null);
   const sftpContextRef = useRef({ sessionId: "", path: "~" });
   const sftpRefreshRef = useRef<(path?: string) => void>(() => undefined);
+  const sftpUploadTargetsRef = useRef<Map<string, string>>(new Map());
+  const sftpRefreshTimersRef = useRef<Map<string, number>>(new Map());
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
   const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
   const placeholderHost = useMemo(() => createPlaceholderHost(language), [language]);
@@ -766,6 +796,10 @@ export function App() {
 
   const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
   const isHostsHome = activeView === "hosts";
+  const workbenchStyle =
+    !isToolDockCollapsed && !isHostPickerActive && !isTerminalMaximized
+      ? ({ "--tool-dock-width": `${toolDockWidth}px` } as CSSProperties)
+      : undefined;
   const fitAndResizeTerminal = useCallback((tabId: string) => {
     const entry = xtermEntriesRef.current.get(tabId);
     if (!entry) {
@@ -926,6 +960,14 @@ export function App() {
   }, [fitAndResizeTerminal, terminalFont, terminalFontSize]);
 
   useEffect(() => {
+    window.localStorage.setItem(TOOL_DOCK_WIDTH_STORAGE_KEY, String(toolDockWidth));
+  }, [toolDockWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SFTP_QUEUE_HEIGHT_STORAGE_KEY, String(sftpQueueHeight));
+  }, [sftpQueueHeight]);
+
+  useEffect(() => {
     terminalTabsRef.current = terminalTabs;
   }, [terminalTabs]);
 
@@ -1081,13 +1123,17 @@ export function App() {
       const nextTransfer = transfer as SftpTransfer;
       upsertSftpTransfer(nextTransfer);
       const context = sftpContextRef.current;
+      const uploadTargetPath = sftpUploadTargetsRef.current.get(nextTransfer.transferId);
+      const completedUpload = nextTransfer.status === "completed" && nextTransfer.direction === "upload";
       if (
-        nextTransfer.status === "completed" &&
-        nextTransfer.direction === "upload" &&
+        completedUpload &&
         nextTransfer.sessionId === context.sessionId &&
-        sameRemoteParent(nextTransfer.remotePath, context.path)
+        (sameRemotePath(uploadTargetPath, context.path) || sameRemoteParent(nextTransfer.remotePath, context.path))
       ) {
-        sftpRefreshRef.current(context.path);
+        scheduleSftpRefresh(context.path);
+      }
+      if (completedUpload || nextTransfer.status === "failed" || nextTransfer.status === "cancelled") {
+        sftpUploadTargetsRef.current.delete(nextTransfer.transferId);
       }
     };
 
@@ -1132,6 +1178,11 @@ export function App() {
 
     if (sftpSessionId !== activeTerminal.sessionId) {
       void loadSftpPath(activeTerminal.cwd || "~", activeTerminal.sessionId);
+      return;
+    }
+
+    if (activeTerminal.cwd && activeTerminal.cwd !== sftpPath) {
+      void loadSftpPath(activeTerminal.cwd, activeTerminal.sessionId);
     }
   }, [activeTool, activeTerminal.cwd, activeTerminal.sessionId, isSftpAvailable, sftpSessionId]);
 
@@ -1156,7 +1207,7 @@ export function App() {
     resizeActiveTerminal();
 
     return () => window.removeEventListener("resize", resizeActiveTerminal);
-  }, [activeTerminal.id, fitAndResizeTerminal, isTerminalMaximized, isToolDockCollapsed]);
+  }, [activeTerminal.id, fitAndResizeTerminal, isTerminalMaximized, isToolDockCollapsed, toolDockWidth]);
 
   useEffect(() => {
     if (activeTerminal.id === "tab-preview") {
@@ -1185,6 +1236,10 @@ export function App() {
       for (const tabId of xtermEntriesRef.current.keys()) {
         disposeTerminal(tabId);
       }
+      for (const timer of sftpRefreshTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      sftpRefreshTimersRef.current.clear();
     },
     []
   );
@@ -1788,6 +1843,19 @@ export function App() {
     });
   }
 
+  function scheduleSftpRefresh(path: string, delayMs = 160) {
+    const normalizedPath = path || "~";
+    const existingTimer = sftpRefreshTimersRef.current.get(normalizedPath);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+    const timer = window.setTimeout(() => {
+      sftpRefreshTimersRef.current.delete(normalizedPath);
+      sftpRefreshRef.current(normalizedPath);
+    }, delayMs);
+    sftpRefreshTimersRef.current.set(normalizedPath, timer);
+  }
+
   function openSftpEntry(entry: SftpFileEntry) {
     setSelectedSftpPath(entry.path);
     if (entry.directory) {
@@ -1902,7 +1970,11 @@ export function App() {
           localPath,
           remotePath: joinRemotePath(targetDirectory, file.name)
         });
+        sftpUploadTargetsRef.current.set(transfer.transferId, targetDirectory);
         upsertSftpTransfer(transfer);
+        if (sameRemotePath(targetDirectory, sftpContextRef.current.path)) {
+          scheduleSftpRefresh(targetDirectory, transfer.status === "completed" ? 160 : 900);
+        }
       } catch (error) {
         setSftpError(errorMessage(error));
       }
@@ -2141,10 +2213,93 @@ export function App() {
     );
   }
 
+  function beginToolDockResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (isToolDockCollapsed || isHostPickerActive || isTerminalMaximized) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = toolDockWidth;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    setIsToolDockResizing(true);
+
+    const finishResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setIsToolDockResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setToolDockWidth(clampToolDockWidth(startWidth + startX - moveEvent.clientX));
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleToolDockResizeKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setToolDockWidth((width) => clampToolDockWidth(width + 24));
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setToolDockWidth((width) => clampToolDockWidth(width - 24));
+    }
+  }
+
+  function beginSftpQueueResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = sftpQueueHeight;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    setIsSftpQueueResizing(true);
+
+    const finishResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setIsSftpQueueResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setSftpQueueHeight(clampSftpQueueHeight(startHeight + startY - moveEvent.clientY));
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleSftpQueueResizeKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSftpQueueHeight((height) => clampSftpQueueHeight(height + 24));
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSftpQueueHeight((height) => clampSftpQueueHeight(height - 24));
+    }
+  }
+
   function renderFilesPanel() {
     const canUseFiles = isSftpAvailable && Boolean(activeTerminal.sessionId);
     const canDownload = Boolean(selectedSftpEntry && !selectedSftpEntry.directory);
     const canMutate = Boolean(selectedSftpEntry);
+    const queueStyle = { "--sftp-queue-height": `${sftpQueueHeight}px` } as CSSProperties;
 
     return (
       <div className="tool-content tool-content--files">
@@ -2363,7 +2518,24 @@ export function App() {
           )}
         </div>
 
-	        <section className="subpanel subpanel--queue" aria-label={text.tools.files.queue}>
+	        <section
+	          className={`subpanel subpanel--queue ${isSftpQueueResizing ? "is-resizing" : ""}`}
+	          aria-label={text.tools.files.queue}
+	          style={queueStyle}
+	        >
+	          <button
+	            className="queue-resize-handle"
+	            type="button"
+	            role="separator"
+	            aria-orientation="horizontal"
+	            aria-label={text.tools.files.resizeQueue}
+	            title={text.tools.files.resizeQueue}
+	            aria-valuemin={MIN_SFTP_QUEUE_HEIGHT}
+	            aria-valuemax={MAX_SFTP_QUEUE_HEIGHT}
+	            aria-valuenow={sftpQueueHeight}
+	            onPointerDown={beginSftpQueueResize}
+	            onKeyDown={handleSftpQueueResizeKeyDown}
+	          />
           <div className="subpanel-heading">
             <span>{text.tools.files.queue}</span>
             <strong className={`queue-count ${sftpTransfers.length === 0 ? "queue-count--idle" : ""}`}>
@@ -2775,7 +2947,10 @@ export function App() {
 	            <section
 	              className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""} ${
 	                isHostPickerActive ? "is-host-picker" : ""
-	              } ${isTerminalMaximized ? "is-terminal-maximized" : ""}`}
+	              } ${isTerminalMaximized ? "is-terminal-maximized" : ""} ${
+	                isToolDockResizing ? "is-resizing-tool" : ""
+	              }`}
+	              style={workbenchStyle}
 	            >
               <div className="terminal-column">
 	                <section className="terminal-stage" aria-label={text.terminal.title}>
@@ -2900,6 +3075,19 @@ export function App() {
                   renderToolSideRail()
                 ) : (
                   <>
+                    <button
+                      className="tool-dock-resize-handle"
+                      type="button"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={text.tools.resizePanel}
+                      title={text.tools.resizePanel}
+                      aria-valuemin={MIN_TOOL_DOCK_WIDTH}
+                      aria-valuemax={MAX_TOOL_DOCK_WIDTH}
+                      aria-valuenow={toolDockWidth}
+                      onPointerDown={beginToolDockResize}
+                      onKeyDown={handleToolDockResizeKeyDown}
+                    />
                     {renderToolSideRail()}
                     <div className={`tool-panel ${activeTool === "themes" ? "tool-panel--settings" : ""}`}>
                       {activeTool !== "themes" ? (
@@ -3392,6 +3580,24 @@ function clampTerminalFontSize(value: number): number {
   return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(value)));
 }
 
+function parseToolDockWidth(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampToolDockWidth(parsed) : DEFAULT_TOOL_DOCK_WIDTH;
+}
+
+function clampToolDockWidth(value: number): number {
+  return Math.min(MAX_TOOL_DOCK_WIDTH, Math.max(MIN_TOOL_DOCK_WIDTH, Math.round(value)));
+}
+
+function parseSftpQueueHeight(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampSftpQueueHeight(parsed) : DEFAULT_SFTP_QUEUE_HEIGHT;
+}
+
+function clampSftpQueueHeight(value: number): number {
+  return Math.min(MAX_SFTP_QUEUE_HEIGHT, Math.max(MIN_SFTP_QUEUE_HEIGHT, Math.round(value)));
+}
+
 function joinRemotePath(basePath: string, name: string): string {
   const trimmedName = name.trim();
   if (!basePath || basePath === "/") {
@@ -3463,11 +3669,22 @@ function normalizeRemoteDirectory(path: string): string {
   return `/${segments.join("/")}`.replace(/\/+$/, "") || "/";
 }
 
+function sameRemotePath(left?: string, right?: string): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return trimRemoteSlash(left) === trimRemoteSlash(right);
+}
+
 function sameRemoteParent(path: string, parent: string): boolean {
-  const normalizedParent = parent === "/" ? "/" : parent.replace(/\/+$/, "");
+  const normalizedParent = trimRemoteSlash(parent);
   const index = path.lastIndexOf("/");
   const currentParent = index <= 0 ? "/" : path.slice(0, index);
-  return currentParent === normalizedParent;
+  return trimRemoteSlash(currentParent) === normalizedParent;
+}
+
+function trimRemoteSlash(path: string): string {
+  return path === "/" ? "/" : path.replace(/\/+$/, "");
 }
 
 function formatBytes(value: number): string {

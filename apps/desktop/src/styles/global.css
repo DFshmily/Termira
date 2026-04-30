@@ -724,10 +724,16 @@ h2 {
 
 .workbench-grid {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(380px, 432px);
+  grid-template-columns: minmax(520px, 1fr) minmax(380px, var(--tool-dock-width, 432px));
   gap: 0;
   height: 100%;
   min-height: 0;
+}
+
+.workbench-grid.is-resizing-tool,
+.workbench-grid.is-resizing-tool * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .workbench-grid.is-tool-collapsed {
@@ -1158,6 +1164,7 @@ h2 {
 }
 
 .tool-dock {
+  position: relative;
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
   min-width: 0;
@@ -1168,6 +1175,36 @@ h2 {
   overflow: hidden;
   background: #1a2027;
   box-shadow: none;
+}
+
+.tool-dock-resize-handle {
+  position: absolute;
+  inset: 0 auto 0 -6px;
+  z-index: 6;
+  width: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.tool-dock-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 5px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.14s ease;
+}
+
+.tool-dock-resize-handle:hover::after,
+.tool-dock-resize-handle:focus-visible::after,
+.workbench-grid.is-resizing-tool .tool-dock-resize-handle::after {
+  background: rgba(66, 197, 173, 0.72);
+}
+
+.tool-dock-resize-handle:focus-visible {
+  outline: none;
 }
 
 .tool-dock.is-collapsed {
@@ -1753,17 +1790,51 @@ h2 {
 }
 
 .subpanel--queue {
+  position: relative;
   min-height: 0;
-  padding-top: var(--space-2);
+  padding-top: 0;
   border-top: 1px solid var(--color-border-soft);
 }
 
 .subpanel--queue .queue-list {
-  max-height: min(168px, 24vh);
+  max-height: min(var(--sftp-queue-height, 168px), 42vh);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
+}
+
+.queue-resize-handle {
+  position: relative;
+  z-index: 3;
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin: -4px 0 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: row-resize;
+}
+
+.queue-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 10px var(--space-3) auto;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  transition: background 0.14s ease;
+}
+
+.queue-resize-handle:hover::after,
+.queue-resize-handle:focus-visible::after,
+.subpanel--queue.is-resizing .queue-resize-handle::after {
+  background: rgba(66, 197, 173, 0.72);
+}
+
+.queue-resize-handle:focus-visible {
+  outline: none;
 }
 
 .subpanel--queue .queue-list--empty {

@@ -114,6 +114,7 @@ export const messages = {
       eyebrow: "会话工具",
       collapsePanel: "折叠工具面板",
       expandPanel: "展开工具面板",
+      resizePanel: "拖动调整工具区宽度",
       themes: {
         title: "终端主题",
         active: "当前主题",
@@ -142,6 +143,7 @@ export const messages = {
         followTerminalCwd: "跳到终端当前目录",
         dropUploadHere: "拖放上传到当前目录",
         dropUploadIntoFolder: "拖放上传到此文件夹",
+        resizeQueue: "拖动调整传输队列高度",
         name: "名称",
         size: "大小",
         modified: "修改时间",
@@ -367,6 +369,7 @@ export const messages = {
       eyebrow: "Session tools",
       collapsePanel: "Collapse tool panel",
       expandPanel: "Expand tool panel",
+      resizePanel: "Drag to resize tool panel",
       themes: {
         title: "Terminal themes",
         active: "Active",
@@ -395,6 +398,7 @@ export const messages = {
         followTerminalCwd: "Go to terminal current directory",
         dropUploadHere: "Drop to upload here",
         dropUploadIntoFolder: "Drop to upload into this folder",
+        resizeQueue: "Drag to resize transfer queue",
         name: "Name",
         size: "Size",
         modified: "Modified",
