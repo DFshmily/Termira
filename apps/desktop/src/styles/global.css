@@ -1260,6 +1260,10 @@ h2 {
   padding: var(--space-3);
 }
 
+.tool-content--forwards {
+  align-content: start;
+}
+
 .sftp-browser-head {
   display: grid;
   gap: var(--space-2);
@@ -2066,6 +2070,29 @@ h2 {
   gap: var(--space-3);
 }
 
+.forward-form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-2);
+  background: rgba(0, 0, 0, 0.13);
+}
+
+.forward-form .subpanel-heading {
+  padding: 0 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border-soft);
+  background: transparent;
+}
+
+.forward-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  min-width: 0;
+}
+
 .rule-card-head strong,
 .command-card strong {
   display: block;
@@ -2101,6 +2128,13 @@ h2 {
 
 .rule-card--failed {
   border-color: rgba(239, 125, 115, 0.34);
+}
+
+.rule-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .state-badge {
@@ -2468,7 +2502,8 @@ h2 {
   font-weight: 700;
 }
 
-.form-field input {
+.form-field input,
+.form-field select {
   width: 100%;
   min-width: 0;
   min-height: 36px;
@@ -2479,7 +2514,12 @@ h2 {
   background: #101419;
 }
 
-.form-field input:disabled {
+.form-field select {
+  appearance: none;
+}
+
+.form-field input:disabled,
+.form-field select:disabled {
   color: var(--color-text-subtle);
   background: rgba(255, 255, 255, 0.025);
 }
@@ -2699,6 +2739,7 @@ h2 {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .forward-grid,
   .monitor-summary,
   .process-row {
     grid-template-columns: 1fr;

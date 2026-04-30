@@ -131,6 +131,14 @@ public final class SshSessionManager implements AutoCloseable {
         }
     }
 
+    public SSHClient requireConnectedClient(String sessionId) throws AppError {
+        SshSessionHandle handle = requireSession(sessionId);
+        if (handle.status() != SshStatus.CONNECTED || !handle.client().isConnected() || !handle.client().isAuthenticated()) {
+            throw new AppError(ErrorCode.FORWARD_NOT_CONNECTED, "SSH session is not connected.", Map.of("sessionId", sessionId));
+        }
+        return handle.client();
+    }
+
     public Map<String, Object> openShell(TerminalOpenShellRequest request) throws AppError {
         String sessionId = requireText(request == null ? null : request.sessionId(), "sessionId");
         SshSessionHandle handle = requireSession(sessionId);

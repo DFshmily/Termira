@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.termira.config.ConfigPaths;
 import com.termira.error.AppError;
 import com.termira.error.ErrorCode;
+import com.termira.forwarding.ForwardStartRequest;
+import com.termira.forwarding.ForwardStopRequest;
+import com.termira.forwarding.ForwardingManager;
 import com.termira.profile.ForwardRuleInput;
 import com.termira.profile.HostGroupInput;
 import com.termira.profile.HostProfileInput;
@@ -43,6 +46,7 @@ public final class MethodRouter {
     private final VaultManager vaultManager;
     private final SshSessionManager sshSessionManager;
     private final SftpManager sftpManager;
+    private final ForwardingManager forwardingManager;
 
     public MethodRouter() {
         this(ConfigPaths.resolve());
@@ -60,11 +64,13 @@ public final class MethodRouter {
         this.vaultManager = vaultManager;
         this.sshSessionManager = new SshSessionManager(profileStore, vaultManager, IpcEventSink.NOOP);
         this.sftpManager = new SftpManager(sshSessionManager, IpcEventSink.NOOP);
+        this.forwardingManager = new ForwardingManager(profileStore, sshSessionManager, IpcEventSink.NOOP);
     }
 
     public void setEventSink(IpcEventSink eventSink) {
         sshSessionManager.setEventSink(eventSink);
         sftpManager.setEventSink(eventSink);
+        forwardingManager.setEventSink(eventSink);
     }
 
     public Object route(IpcRequest request) throws AppError {
@@ -91,6 +97,12 @@ public final class MethodRouter {
             case "forwardRule.list" -> profileStore.listForwardRules(optionalString(request.params(), "profileId"));
             case "forwardRule.save" -> profileStore.saveForwardRule(params(request, ForwardRuleInput.class));
             case "forwardRule.delete" -> Map.of("deleted", profileStore.deleteForwardRule(requiredString(request.params(), "id")));
+            case "forward.list" -> forwardingManager.list(optionalString(request.params(), "profileId"));
+            case "forward.create" -> forwardingManager.create(params(request, ForwardRuleInput.class));
+            case "forward.update" -> forwardingManager.update(forwardInputForUpdate(request.params()));
+            case "forward.delete" -> forwardingManager.delete(requiredString(request.params(), "id"));
+            case "forward.start" -> forwardingManager.start(params(request, ForwardStartRequest.class));
+            case "forward.stop" -> forwardingManager.stop(params(request, ForwardStopRequest.class));
             case "quickCommand.list" -> profileStore.listQuickCommands(optionalString(request.params(), "profileId"));
             case "quickCommand.save" -> profileStore.saveQuickCommand(params(request, QuickCommandInput.class));
             case "quickCommand.delete" -> Map.of("deleted", profileStore.deleteQuickCommand(requiredString(request.params(), "id")));
@@ -105,6 +117,7 @@ public final class MethodRouter {
             case "ssh.connect" -> sshSessionManager.connect(params(request, SshConnectRequest.class));
             case "ssh.disconnect" -> {
                 SshDisconnectRequest disconnectRequest = params(request, SshDisconnectRequest.class);
+                forwardingManager.closeSession(disconnectRequest.sessionId());
                 sftpManager.closeSession(disconnectRequest.sessionId());
                 yield sshSessionManager.disconnect(disconnectRequest);
             }
@@ -160,6 +173,7 @@ public final class MethodRouter {
     }
 
     private Map<String, Object> shutdown() {
+        forwardingManager.close();
         sftpManager.close();
         sshSessionManager.close();
         shutdownRequested.set(true);
@@ -203,6 +217,34 @@ public final class MethodRouter {
             return mapper.treeToValue(params, HostGroupInput.class);
         } catch (Exception error) {
             throw new AppError(ErrorCode.IPC_INVALID_REQUEST, "Invalid host group update params.");
+        }
+    }
+
+    private ForwardRuleInput forwardInputForUpdate(JsonNode params) throws AppError {
+        JsonNode ruleNode = params == null ? null : params.get("rule");
+        try {
+            if (ruleNode != null && !ruleNode.isNull()) {
+                ForwardRuleInput input = mapper.treeToValue(ruleNode, ForwardRuleInput.class);
+                if (input.id() != null && !input.id().isBlank()) {
+                    return input;
+                }
+                return new ForwardRuleInput(
+                        requiredString(params, "id"),
+                        input.profileId(),
+                        input.name(),
+                        input.type(),
+                        input.bindHost(),
+                        input.bindPort(),
+                        input.targetHost(),
+                        input.targetPort(),
+                        input.autoStart()
+                );
+            }
+            return mapper.treeToValue(params, ForwardRuleInput.class);
+        } catch (AppError error) {
+            throw error;
+        } catch (Exception error) {
+            throw new AppError(ErrorCode.IPC_INVALID_REQUEST, "Invalid forward rule update params.");
         }
     }
 

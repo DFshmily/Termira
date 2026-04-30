@@ -298,7 +298,8 @@ public final class ProfileStore {
 
     public List<ForwardRule> listForwardRules(String profileId) throws AppError {
         String sql = """
-                SELECT id, profile_id, name, type, bind_host, bind_port, target_host, target_port, created_at, updated_at
+                SELECT id, profile_id, name, type, bind_host, bind_port, target_host, target_port,
+                       auto_start, created_at, updated_at
                   FROM forward_rules
                 """;
         if (hasText(profileId)) {
@@ -335,15 +336,15 @@ public final class ProfileStore {
                     ? """
                     UPDATE forward_rules
                        SET profile_id = ?, name = ?, type = ?, bind_host = ?, bind_port = ?,
-                           target_host = ?, target_port = ?, updated_at = ?
+                           target_host = ?, target_port = ?, auto_start = ?, updated_at = ?
                      WHERE id = ?
                     """
                     : """
                     INSERT INTO forward_rules (
                       profile_id, name, type, bind_host, bind_port, target_host, target_port,
-                      updated_at, id, created_at
+                      auto_start, updated_at, id, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """;
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, input.profileId());
@@ -353,10 +354,11 @@ public final class ProfileStore {
                 statement.setInt(5, input.bindPort());
                 setNullableString(statement, 6, blankToNull(input.targetHost()));
                 setNullableInteger(statement, 7, input.targetPort());
-                statement.setString(8, now);
-                statement.setString(9, id);
+                statement.setInt(8, Boolean.TRUE.equals(input.autoStart()) ? 1 : 0);
+                statement.setString(9, now);
+                statement.setString(10, id);
                 if (!exists) {
-                    statement.setString(10, now);
+                    statement.setString(11, now);
                 }
                 statement.executeUpdate();
             }
@@ -511,6 +513,7 @@ public final class ProfileStore {
                       bind_port INTEGER NOT NULL CHECK (bind_port BETWEEN 1 AND 65535),
                       target_host TEXT,
                       target_port INTEGER CHECK (target_port BETWEEN 1 AND 65535),
+                      auto_start INTEGER NOT NULL DEFAULT 0,
                       created_at TEXT NOT NULL,
                       updated_at TEXT NOT NULL
                     )
@@ -527,7 +530,8 @@ public final class ProfileStore {
                       updated_at TEXT NOT NULL
                     )
                     """);
-            statement.execute("PRAGMA user_version = 1");
+            ensureColumn(connection, "forward_rules", "auto_start", "ALTER TABLE forward_rules ADD COLUMN auto_start INTEGER NOT NULL DEFAULT 0");
+            statement.execute("PRAGMA user_version = 2");
         } catch (SQLException error) {
             throw storageError(error);
         }
@@ -599,6 +603,7 @@ public final class ProfileStore {
                 resultSet.getInt("bind_port"),
                 resultSet.getString("target_host"),
                 nullableInteger(resultSet, "target_port"),
+                resultSet.getInt("auto_start") == 1,
                 resultSet.getString("created_at"),
                 resultSet.getString("updated_at")
         );
@@ -633,10 +638,11 @@ public final class ProfileStore {
         }
     }
 
-    private ForwardRule getForwardRule(String id) throws AppError {
+    public ForwardRule getForwardRule(String id) throws AppError {
         try (Connection connection = openConnection();
              PreparedStatement statement = connection.prepareStatement("""
-                     SELECT id, profile_id, name, type, bind_host, bind_port, target_host, target_port, created_at, updated_at
+                     SELECT id, profile_id, name, type, bind_host, bind_port, target_host, target_port,
+                            auto_start, created_at, updated_at
                        FROM forward_rules
                       WHERE id = ?
                      """)) {
@@ -649,6 +655,20 @@ public final class ProfileStore {
             }
         } catch (SQLException error) {
             throw storageError(error);
+        }
+    }
+
+    private void ensureColumn(Connection connection, String tableName, String columnName, String alterSql) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet columns = statement.executeQuery("PRAGMA table_info(" + tableName + ")")) {
+            while (columns.next()) {
+                if (columnName.equals(columns.getString("name"))) {
+                    return;
+                }
+            }
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(alterSql);
         }
     }
 

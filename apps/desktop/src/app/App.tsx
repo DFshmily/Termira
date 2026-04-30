@@ -245,6 +245,39 @@ type SftpTransfer = {
   updatedAt: string;
 };
 
+type ForwardType = "local" | "remote" | "dynamic";
+type ForwardStatus = "starting" | "running" | "stopping" | "stopped" | "failed";
+
+type BackendForwardRule = {
+  id: string;
+  forwardingId: string;
+  profileId: string;
+  name: string;
+  type: ForwardType;
+  bindHost: string;
+  bindPort: number;
+  targetHost?: string;
+  targetPort?: number;
+  autoStart: boolean;
+  status: ForwardStatus;
+  sessionId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  statusChangedAt?: string;
+};
+
+type ForwardFormState = {
+  name: string;
+  type: ForwardType;
+  bindHost: string;
+  bindPort: string;
+  targetHost: string;
+  targetPort: string;
+  autoStart: boolean;
+};
+
 type XTermEntry = {
   terminal: XTermTerminal;
   fitAddon: FitAddon;
@@ -320,6 +353,16 @@ const defaultHostForm: HostFormState = {
   favorite: false
 };
 
+const defaultForwardForm: ForwardFormState = {
+  name: "",
+  type: "local",
+  bindHost: "127.0.0.1",
+  bindPort: "",
+  targetHost: "127.0.0.1",
+  targetPort: "",
+  autoStart: false
+};
+
 const toolDefinitions: ToolDefinition[] = [
   { id: "themes", label: { "zh-CN": "主题", "en-US": "Themes" }, icon: Palette },
   { id: "files", label: { "zh-CN": "SFTP", "en-US": "SFTP" }, icon: FolderOpen },
@@ -360,6 +403,14 @@ const hostStatusTone: Record<ConnectionState, StatusTone> = {
   disconnected: "muted",
   failed: "bad",
   timeout: "bad"
+};
+
+const forwardStatusTone: Record<ForwardStatus, StatusTone> = {
+  running: "good",
+  starting: "warn",
+  stopping: "warn",
+  stopped: "muted",
+  failed: "bad"
 };
 
 const terminalThemes: TerminalThemeDefinition[] = [
@@ -760,6 +811,12 @@ export function App() {
   const [isSftpLoading, setIsSftpLoading] = useState(false);
   const [sftpError, setSftpError] = useState<string | null>(null);
   const [sftpTransfers, setSftpTransfers] = useState<SftpTransfer[]>([]);
+  const [forwardRules, setForwardRules] = useState<BackendForwardRule[]>([]);
+  const [forwardForm, setForwardForm] = useState<ForwardFormState>(defaultForwardForm);
+  const [editingForwardId, setEditingForwardId] = useState("");
+  const [isForwardLoading, setIsForwardLoading] = useState(false);
+  const [isSavingForward, setIsSavingForward] = useState(false);
+  const [forwardError, setForwardError] = useState<string | null>(null);
 
   const text = getMessages(language);
   const terminalTabsRef = useRef<TerminalSession[]>([]);
@@ -775,6 +832,7 @@ export function App() {
   const sftpRefreshRef = useRef<(path?: string) => void>(() => undefined);
   const sftpUploadTargetsRef = useRef<Map<string, string>>(new Map());
   const sftpRefreshTimersRef = useRef<Map<string, number>>(new Map());
+  const forwardProfileIdRef = useRef("");
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
   const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
   const placeholderHost = useMemo(() => createPlaceholderHost(language), [language]);
@@ -793,11 +851,16 @@ export function App() {
   const activeTerminal = visibleTerminalTabs.find((tab) => tab.id === activeTerminalTabId) ?? visibleTerminalTabs[0] ?? previewTerminalTab;
   const isHostPickerActive = activeTerminal.kind === "hostPicker";
   const activeTerminalHost = hosts.find((host) => host.id === activeTerminal.hostId) ?? selectedHost;
+  const forwardProfile =
+    activeTerminalHost.id !== "__placeholder" ? activeTerminalHost : selectedHost.id !== "__placeholder" ? selectedHost : null;
+  const forwardProfileId = forwardProfile?.id ?? "";
   const activeTerminalHostLabel = activeTerminalHost.id === "__placeholder" ? text.terminal.noHost : formatHostAddress(activeTerminalHost);
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
   const terminalTheme = terminalThemesById.get(terminalThemeId) ?? terminalThemes[0];
   const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
   const isSftpAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
+  const isForwardSessionAvailable =
+    activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId) && Boolean(forwardProfileId) && activeTerminal.hostId === forwardProfileId;
   const selectedSftpEntry = sftpEntries.find((entry) => entry.path === selectedSftpPath);
   const sortedSftpEntries = useMemo(() => sortSftpEntries(sftpEntries, sftpSort), [sftpEntries, sftpSort]);
   const shouldCloseActiveTerminalTab =
@@ -1016,10 +1079,20 @@ export function App() {
   }, [activeTerminal.sessionId, sftpPath]);
 
   useEffect(() => {
+    forwardProfileIdRef.current = forwardProfileId;
+  }, [forwardProfileId]);
+
+  useEffect(() => {
     sftpRefreshRef.current = (path?: string) => {
       void loadSftpPath(path ?? sftpContextRef.current.path);
     };
   });
+
+  useEffect(() => {
+    if (activeTool === "forwards") {
+      void loadForwardRules(forwardProfileId);
+    }
+  }, [activeTool, forwardProfileId]);
 
   useEffect(() => {
     void refreshProfiles();
@@ -1150,6 +1223,25 @@ export function App() {
       }
     };
 
+    const onForwardStatus = (payload: unknown) => {
+      const rule = payload as Partial<BackendForwardRule>;
+      if (
+        typeof rule.id !== "string" ||
+        typeof rule.profileId !== "string" ||
+        typeof rule.name !== "string" ||
+        typeof rule.type !== "string" ||
+        typeof rule.bindHost !== "string" ||
+        typeof rule.bindPort !== "number" ||
+        typeof rule.status !== "string"
+      ) {
+        return;
+      }
+      if (rule.profileId !== forwardProfileIdRef.current) {
+        return;
+      }
+      upsertForwardRule(rule as BackendForwardRule);
+    };
+
     window.termira.removeAllListeners?.("terminal.output");
     window.termira.removeAllListeners?.("terminal.closed");
     window.termira.removeAllListeners?.("ssh.statusChanged");
@@ -1157,6 +1249,7 @@ export function App() {
     window.termira.removeAllListeners?.("transfer.progress");
     window.termira.removeAllListeners?.("transfer.completed");
     window.termira.removeAllListeners?.("transfer.failed");
+    window.termira.removeAllListeners?.("forward.statusChanged");
 
     window.termira.on("terminal.output", onOutput);
     window.termira.on("terminal.closed", onTerminalClosed);
@@ -1165,6 +1258,7 @@ export function App() {
     window.termira.on("transfer.progress", onTransferEvent);
     window.termira.on("transfer.completed", onTransferEvent);
     window.termira.on("transfer.failed", onTransferEvent);
+    window.termira.on("forward.statusChanged", onForwardStatus);
 
     return () => {
       window.termira.off("terminal.output", onOutput);
@@ -1174,6 +1268,7 @@ export function App() {
       window.termira.off("transfer.progress", onTransferEvent);
       window.termira.off("transfer.completed", onTransferEvent);
       window.termira.off("transfer.failed", onTransferEvent);
+      window.termira.off("forward.statusChanged", onForwardStatus);
     };
   }, []);
 
@@ -2141,6 +2236,148 @@ export function App() {
     }
   }
 
+  async function loadForwardRules(profileId = forwardProfileId) {
+    if (!profileId) {
+      setForwardRules([]);
+      setForwardError(null);
+      setIsForwardLoading(false);
+      return;
+    }
+    setIsForwardLoading(true);
+    setForwardError(null);
+    try {
+      const rules = await window.termira.invoke<BackendForwardRule[]>("forward.list", { profileId });
+      setForwardRules(sortForwardRules(rules));
+    } catch (error) {
+      setForwardError(errorMessage(error));
+    } finally {
+      setIsForwardLoading(false);
+    }
+  }
+
+  function upsertForwardRule(rule: BackendForwardRule) {
+    setForwardRules((current) => {
+      const next = current.some((item) => item.id === rule.id)
+        ? current.map((item) => (item.id === rule.id ? rule : item))
+        : [rule, ...current];
+      return sortForwardRules(next);
+    });
+  }
+
+  function setForwardFormField<Key extends keyof ForwardFormState>(field: Key, value: ForwardFormState[Key]) {
+    setForwardForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetForwardForm() {
+    setForwardForm(defaultForwardForm);
+    setEditingForwardId("");
+    setForwardError(null);
+  }
+
+  function editForwardRule(rule: BackendForwardRule) {
+    setEditingForwardId(rule.id);
+    setForwardForm({
+      name: rule.name,
+      type: rule.type,
+      bindHost: rule.bindHost,
+      bindPort: String(rule.bindPort),
+      targetHost: rule.targetHost ?? "127.0.0.1",
+      targetPort: rule.targetPort == null ? "" : String(rule.targetPort),
+      autoStart: rule.autoStart
+    });
+    setForwardError(null);
+  }
+
+  async function submitForwardRule(event?: FormEvent) {
+    event?.preventDefault();
+    if (!forwardProfileId) {
+      setForwardError(text.tools.forwards.noProfile);
+      return;
+    }
+    const bindPort = parseForwardPort(forwardForm.bindPort);
+    const targetPort = parseForwardPort(forwardForm.targetPort);
+    const needsTarget = forwardForm.type !== "dynamic";
+    if (!forwardForm.name.trim()) {
+      setForwardError(text.tools.forwards.nameRequired);
+      return;
+    }
+    if (!forwardForm.bindHost.trim() || bindPort == null) {
+      setForwardError(text.tools.forwards.portInvalid);
+      return;
+    }
+    if (needsTarget && (!forwardForm.targetHost.trim() || targetPort == null)) {
+      setForwardError(text.tools.forwards.targetRequired);
+      return;
+    }
+
+    setIsSavingForward(true);
+    setForwardError(null);
+    try {
+      const payload = {
+        id: editingForwardId || undefined,
+        profileId: forwardProfileId,
+        name: forwardForm.name.trim(),
+        type: forwardForm.type,
+        bindHost: forwardForm.bindHost.trim(),
+        bindPort,
+        targetHost: needsTarget ? forwardForm.targetHost.trim() : undefined,
+        targetPort: needsTarget ? targetPort : undefined,
+        autoStart: forwardForm.autoStart
+      };
+      const saved = await window.termira.invoke<BackendForwardRule>(editingForwardId ? "forward.update" : "forward.create", payload);
+      upsertForwardRule(saved);
+      resetForwardForm();
+    } catch (error) {
+      setForwardError(errorMessage(error));
+    } finally {
+      setIsSavingForward(false);
+    }
+  }
+
+  async function startForwardRule(rule: BackendForwardRule) {
+    if (!activeTerminal.sessionId || !isForwardSessionAvailable) {
+      setForwardError(text.tools.forwards.noSession);
+      return;
+    }
+    setForwardError(null);
+    try {
+      const nextRule = await window.termira.invoke<BackendForwardRule>("forward.start", {
+        id: rule.id,
+        sessionId: activeTerminal.sessionId
+      });
+      upsertForwardRule(nextRule);
+    } catch (error) {
+      setForwardError(errorMessage(error));
+    }
+  }
+
+  async function stopForwardRule(rule: BackendForwardRule) {
+    setForwardError(null);
+    try {
+      const nextRule = await window.termira.invoke<BackendForwardRule>("forward.stop", { id: rule.id });
+      upsertForwardRule(nextRule);
+    } catch (error) {
+      setForwardError(errorMessage(error));
+    }
+  }
+
+  async function deleteForwardRule(rule: BackendForwardRule) {
+    const accepted = window.confirm(text.tools.forwards.confirmDelete(rule.name));
+    if (!accepted) {
+      return;
+    }
+    setForwardError(null);
+    try {
+      await window.termira.invoke("forward.delete", { id: rule.id });
+      setForwardRules((current) => current.filter((item) => item.id !== rule.id));
+      if (editingForwardId === rule.id) {
+        resetForwardForm();
+      }
+    } catch (error) {
+      setForwardError(errorMessage(error));
+    }
+  }
+
   function openHostFromHostList(host: HostItem) {
     const reusableTabId = activeView === "terminal" && isHostPickerActive ? activeTerminal.id : undefined;
     void openTerminalForHost(host, reusableTabId, { dedupeOpening: !reusableTabId });
@@ -2729,9 +2966,200 @@ export function App() {
   }
 
   function renderForwardsPanel() {
+    const canUseProfile = Boolean(forwardProfileId);
+    const canStartRules = Boolean(isForwardSessionAvailable && activeTerminal.sessionId);
+    const isEditing = Boolean(editingForwardId);
+
     return (
-      <div className="tool-content">
-        {renderFutureToolPanel(<Network size={18} aria-hidden="true" />, text.tools.forwards.unavailable)}
+      <div className="tool-content tool-content--forwards">
+        <form className="forward-form" onSubmit={(event) => void submitForwardRule(event)}>
+          <div className="subpanel-heading">
+            <span>{isEditing ? text.tools.forwards.editTitle : text.tools.forwards.formTitle}</span>
+            <button className="button button--compact" type="button" disabled={!isEditing && forwardForm === defaultForwardForm} onClick={resetForwardForm}>
+              <X size={14} aria-hidden="true" />
+              <span>{text.tools.forwards.cancelEdit}</span>
+            </button>
+          </div>
+
+          <div className="forward-grid">
+            <label className="form-field form-field--wide">
+              <span>{text.tools.forwards.name}</span>
+              <input
+                value={forwardForm.name}
+                disabled={!canUseProfile || isSavingForward}
+                onChange={(event) => setForwardFormField("name", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>{text.tools.forwards.type}</span>
+              <select
+                value={forwardForm.type}
+                disabled={!canUseProfile || isSavingForward}
+                onChange={(event) => setForwardFormField("type", event.currentTarget.value as ForwardType)}
+              >
+                <option value="local">{text.tools.forwards.typeLabels.local}</option>
+                <option value="remote">{text.tools.forwards.typeLabels.remote}</option>
+                <option value="dynamic">{text.tools.forwards.typeLabels.dynamic}</option>
+              </select>
+            </label>
+            <label className="form-field">
+              <span>{text.tools.forwards.bindHost}</span>
+              <input
+                value={forwardForm.bindHost}
+                disabled={!canUseProfile || isSavingForward}
+                spellCheck={false}
+                onChange={(event) => setForwardFormField("bindHost", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>{text.tools.forwards.bindPort}</span>
+              <input
+                inputMode="numeric"
+                value={forwardForm.bindPort}
+                disabled={!canUseProfile || isSavingForward}
+                onChange={(event) => setForwardFormField("bindPort", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>{text.tools.forwards.targetHost}</span>
+              <input
+                value={forwardForm.targetHost}
+                disabled={!canUseProfile || isSavingForward || forwardForm.type === "dynamic"}
+                spellCheck={false}
+                onChange={(event) => setForwardFormField("targetHost", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>{text.tools.forwards.targetPort}</span>
+              <input
+                inputMode="numeric"
+                value={forwardForm.targetPort}
+                disabled={!canUseProfile || isSavingForward || forwardForm.type === "dynamic"}
+                onChange={(event) => setForwardFormField("targetPort", event.currentTarget.value)}
+              />
+            </label>
+            <label className="toggle-field form-field--wide">
+              <input
+                type="checkbox"
+                checked={forwardForm.autoStart}
+                disabled={!canUseProfile || isSavingForward}
+                onChange={(event) => setForwardFormField("autoStart", event.currentTarget.checked)}
+              />
+              <span>{text.tools.forwards.autoStart}</span>
+            </label>
+          </div>
+
+          <div className="split-actions">
+            <button className="button button--compact button--accent" type="submit" disabled={!canUseProfile || isSavingForward}>
+              {isSavingForward ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+              <span>{isEditing ? text.tools.forwards.updateRule : text.tools.forwards.saveRule}</span>
+            </button>
+            <button className="button button--compact" type="button" disabled={isSavingForward} onClick={() => void loadForwardRules(forwardProfileId)}>
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>{text.actions.refresh}</span>
+            </button>
+          </div>
+        </form>
+
+        {!canUseProfile ? (
+          <div className="inline-state">
+            <Network size={15} aria-hidden="true" />
+            <span>{text.tools.forwards.noProfile}</span>
+          </div>
+        ) : !canStartRules ? (
+          <div className="inline-state">
+            <Network size={15} aria-hidden="true" />
+            <span>{text.tools.forwards.noSession}</span>
+          </div>
+        ) : null}
+
+        {forwardError ? (
+          <div className="inline-state inline-state--error">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{forwardError}</span>
+          </div>
+        ) : null}
+
+        <div className="rule-list">
+          {isForwardLoading ? (
+            <div className="queue-empty-state">
+              <Loader2 className="spin-icon" size={14} aria-hidden="true" />
+              <span>{text.tools.forwards.loading}</span>
+            </div>
+          ) : forwardRules.length > 0 ? (
+            forwardRules.map((rule) => {
+              const canStop = rule.status === "running" || rule.status === "starting";
+              const canStart = canStartRules && (rule.status === "stopped" || rule.status === "failed");
+              return (
+                <article key={rule.id} className={`rule-card ${rule.status === "failed" ? "rule-card--failed" : ""}`}>
+                  <div className="rule-card-head">
+                    <div>
+                      <span>{text.tools.forwards.typeLabels[rule.type]}</span>
+                      <strong>{rule.name}</strong>
+                    </div>
+                    <span className={`state-badge state-badge--${forwardStatusTone[rule.status]}`}>
+                      {text.tools.forwards.statusLabels[rule.status]}
+                    </span>
+                  </div>
+                  <div className="rule-route">
+                    <code title={formatForwardBind(rule)}>{formatForwardBind(rule)}</code>
+                    <span>-&gt;</span>
+                    <code title={formatForwardTarget(rule, text)}>{formatForwardTarget(rule, text)}</code>
+                  </div>
+                  {rule.errorMessage ? <small className="queue-error">{rule.errorMessage}</small> : null}
+                  <div className="rule-card-foot">
+                    <span title={rule.profileId}>{text.tools.forwards.boundTo(forwardProfile?.name ? translate(forwardProfile.name, language) : rule.profileId)}</span>
+                    <span className="rule-actions">
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={text.tools.forwards.start}
+                        aria-label={text.tools.forwards.start}
+                        disabled={!canStart}
+                        onClick={() => void startForwardRule(rule)}
+                      >
+                        <Play size={14} aria-hidden="true" />
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={text.tools.forwards.stop}
+                        aria-label={text.tools.forwards.stop}
+                        disabled={!canStop}
+                        onClick={() => void stopForwardRule(rule)}
+                      >
+                        <Square size={14} aria-hidden="true" />
+                      </button>
+                      <button
+                        className="icon-button"
+                        type="button"
+                        title={text.tools.forwards.edit}
+                        aria-label={text.tools.forwards.edit}
+                        disabled={rule.status === "running" || rule.status === "starting"}
+                        onClick={() => editForwardRule(rule)}
+                      >
+                        <Pencil size={14} aria-hidden="true" />
+                      </button>
+                      <button
+                        className="icon-button icon-button--danger"
+                        type="button"
+                        title={text.tools.forwards.delete}
+                        aria-label={text.tools.forwards.delete}
+                        onClick={() => void deleteForwardRule(rule)}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </span>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <div className="queue-empty-state">
+              <span>{canUseProfile ? text.tools.forwards.empty : text.tools.forwards.noProfile}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -3865,6 +4293,43 @@ function formatRemoteTime(value?: string): string {
   const hour = String(date.getHours()).padStart(2, "0");
   const minute = String(date.getMinutes()).padStart(2, "0");
   return `${year}/${month}/${day} ${hour}:${minute}`;
+}
+
+function parseForwardPort(value: string): number | null {
+  const port = Number.parseInt(value.trim(), 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return null;
+  }
+  return port;
+}
+
+function sortForwardRules(rules: BackendForwardRule[]): BackendForwardRule[] {
+  return [...rules].sort((left, right) => {
+    const statusOrder: Record<ForwardStatus, number> = {
+      running: 0,
+      starting: 1,
+      failed: 2,
+      stopping: 3,
+      stopped: 4
+    };
+    const byStatus = statusOrder[left.status] - statusOrder[right.status];
+    if (byStatus !== 0) {
+      return byStatus;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function formatForwardBind(rule: BackendForwardRule): string {
+  const scheme = rule.type === "dynamic" ? "socks" : rule.type;
+  return `${scheme}://${rule.bindHost}:${rule.bindPort}`;
+}
+
+function formatForwardTarget(rule: BackendForwardRule, text: ReturnType<typeof getMessages>): string {
+  if (rule.type === "dynamic") {
+    return text.tools.forwards.dynamicTarget;
+  }
+  return `${rule.targetHost ?? "-"}:${rule.targetPort ?? "-"}`;
 }
 
 function errorMessage(error: unknown): string {

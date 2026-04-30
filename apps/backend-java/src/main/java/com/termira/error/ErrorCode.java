@@ -29,6 +29,11 @@ public final class ErrorCode {
     public static final String SFTP_TRANSFER_CANCELLED = "SFTP_TRANSFER_CANCELLED";
     public static final String SFTP_TRANSFER_NOT_FOUND = "SFTP_TRANSFER_NOT_FOUND";
     public static final String SFTP_VALIDATION_FAILED = "SFTP_VALIDATION_FAILED";
+    public static final String FORWARD_NOT_FOUND = "FORWARD_NOT_FOUND";
+    public static final String FORWARD_NOT_CONNECTED = "FORWARD_NOT_CONNECTED";
+    public static final String FORWARD_PORT_IN_USE = "FORWARD_PORT_IN_USE";
+    public static final String FORWARD_OPERATION_FAILED = "FORWARD_OPERATION_FAILED";
+    public static final String FORWARD_VALIDATION_FAILED = "FORWARD_VALIDATION_FAILED";
 
     private ErrorCode() {
     }
