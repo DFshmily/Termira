@@ -8,6 +8,11 @@ import com.termira.error.ErrorCode;
 import com.termira.forwarding.ForwardStartRequest;
 import com.termira.forwarding.ForwardStopRequest;
 import com.termira.forwarding.ForwardingManager;
+import com.termira.monitor.MonitorManager;
+import com.termira.monitor.MonitorRequest;
+import com.termira.processes.ProcessKillRequest;
+import com.termira.processes.ProcessListRequest;
+import com.termira.processes.ProcessManager;
 import com.termira.profile.ForwardRuleInput;
 import com.termira.profile.HostGroupInput;
 import com.termira.profile.HostProfileInput;
@@ -47,6 +52,8 @@ public final class MethodRouter {
     private final SshSessionManager sshSessionManager;
     private final SftpManager sftpManager;
     private final ForwardingManager forwardingManager;
+    private final MonitorManager monitorManager;
+    private final ProcessManager processManager;
 
     public MethodRouter() {
         this(ConfigPaths.resolve());
@@ -65,12 +72,16 @@ public final class MethodRouter {
         this.sshSessionManager = new SshSessionManager(profileStore, vaultManager, IpcEventSink.NOOP);
         this.sftpManager = new SftpManager(sshSessionManager, IpcEventSink.NOOP);
         this.forwardingManager = new ForwardingManager(profileStore, sshSessionManager, IpcEventSink.NOOP);
+        this.monitorManager = new MonitorManager(sshSessionManager, IpcEventSink.NOOP);
+        this.processManager = new ProcessManager(sshSessionManager, IpcEventSink.NOOP);
     }
 
     public void setEventSink(IpcEventSink eventSink) {
         sshSessionManager.setEventSink(eventSink);
         sftpManager.setEventSink(eventSink);
         forwardingManager.setEventSink(eventSink);
+        monitorManager.setEventSink(eventSink);
+        processManager.setEventSink(eventSink);
     }
 
     public Object route(IpcRequest request) throws AppError {
@@ -103,6 +114,16 @@ public final class MethodRouter {
             case "forward.delete" -> forwardingManager.delete(requiredString(request.params(), "id"));
             case "forward.start" -> forwardingManager.start(params(request, ForwardStartRequest.class));
             case "forward.stop" -> forwardingManager.stop(params(request, ForwardStopRequest.class));
+            case "monitor.start" -> monitorManager.start(params(request, MonitorRequest.class));
+            case "monitor.stop" -> monitorManager.stop(params(request, MonitorRequest.class));
+            case "monitor.snapshot" -> monitorManager.snapshot(params(request, MonitorRequest.class));
+            case "process.list" -> processManager.list(params(request, ProcessListRequest.class));
+            case "process.kill" -> processManager.kill(params(request, ProcessKillRequest.class));
+            case "command.list" -> profileStore.listQuickCommands(optionalString(request.params(), "profileId"));
+            case "command.create" -> profileStore.saveQuickCommand(params(request, QuickCommandInput.class));
+            case "command.update" -> profileStore.saveQuickCommand(quickCommandInputForUpdate(request.params()));
+            case "command.delete" -> Map.of("deleted", profileStore.deleteQuickCommand(requiredString(request.params(), "id")));
+            case "command.sendToTerminal" -> sendQuickCommandToTerminal(request.params());
             case "quickCommand.list" -> profileStore.listQuickCommands(optionalString(request.params(), "profileId"));
             case "quickCommand.save" -> profileStore.saveQuickCommand(params(request, QuickCommandInput.class));
             case "quickCommand.delete" -> Map.of("deleted", profileStore.deleteQuickCommand(requiredString(request.params(), "id")));
@@ -118,6 +139,7 @@ public final class MethodRouter {
             case "ssh.disconnect" -> {
                 SshDisconnectRequest disconnectRequest = params(request, SshDisconnectRequest.class);
                 forwardingManager.closeSession(disconnectRequest.sessionId());
+                monitorManager.closeSession(disconnectRequest.sessionId());
                 sftpManager.closeSession(disconnectRequest.sessionId());
                 yield sshSessionManager.disconnect(disconnectRequest);
             }
@@ -173,6 +195,7 @@ public final class MethodRouter {
     }
 
     private Map<String, Object> shutdown() {
+        monitorManager.close();
         forwardingManager.close();
         sftpManager.close();
         sshSessionManager.close();
@@ -248,6 +271,51 @@ public final class MethodRouter {
         }
     }
 
+    private QuickCommandInput quickCommandInputForUpdate(JsonNode params) throws AppError {
+        JsonNode commandNode = params == null ? null : params.get("command");
+        try {
+            if (commandNode != null && commandNode.isObject()) {
+                QuickCommandInput input = mapper.treeToValue(commandNode, QuickCommandInput.class);
+                if (input.id() != null && !input.id().isBlank()) {
+                    return input;
+                }
+                return new QuickCommandInput(
+                        requiredString(params, "id"),
+                        input.profileId(),
+                        input.groupName(),
+                        input.name(),
+                        input.command(),
+                        input.note()
+                );
+            }
+            QuickCommandInput input = mapper.treeToValue(params, QuickCommandInput.class);
+            if (input == null || input.id() == null || input.id().isBlank()) {
+                throw new AppError(ErrorCode.COMMAND_VALIDATION_FAILED, "Missing quick command id.", Map.of("field", "id"));
+            }
+            return input;
+        } catch (AppError error) {
+            throw error;
+        } catch (Exception error) {
+            throw new AppError(ErrorCode.IPC_INVALID_REQUEST, "Invalid quick command update params.");
+        }
+    }
+
+    private Map<String, Object> sendQuickCommandToTerminal(JsonNode params) throws AppError {
+        String sessionId = requiredString(params, "sessionId");
+        String channelId = requiredString(params, "channelId");
+        String command = optionalString(params, "command");
+        String commandId = optionalString(params, "commandId");
+        if (!hasText(command) && hasText(commandId)) {
+            command = profileStore.getQuickCommand(commandId).command();
+        }
+        if (!hasText(command)) {
+            throw new AppError(ErrorCode.COMMAND_VALIDATION_FAILED, "Missing quick command content.", Map.of("field", "command"));
+        }
+        String data = command.endsWith("\n") ? command : command + "\n";
+        sshSessionManager.write(new TerminalWriteRequest(sessionId, channelId, data));
+        return Map.of("sessionId", sessionId, "channelId", channelId, "sent", true);
+    }
+
     private String requiredString(JsonNode params, String field) throws AppError {
         String value = optionalString(params, field);
         if (value == null || value.isBlank()) {
@@ -272,5 +340,9 @@ public final class MethodRouter {
             return fallback;
         }
         return params.get(field).asBoolean();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

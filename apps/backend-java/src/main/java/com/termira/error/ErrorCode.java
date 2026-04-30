@@ -34,6 +34,13 @@ public final class ErrorCode {
     public static final String FORWARD_PORT_IN_USE = "FORWARD_PORT_IN_USE";
     public static final String FORWARD_OPERATION_FAILED = "FORWARD_OPERATION_FAILED";
     public static final String FORWARD_VALIDATION_FAILED = "FORWARD_VALIDATION_FAILED";
+    public static final String MONITOR_NOT_CONNECTED = "MONITOR_NOT_CONNECTED";
+    public static final String MONITOR_OPERATION_FAILED = "MONITOR_OPERATION_FAILED";
+    public static final String MONITOR_VALIDATION_FAILED = "MONITOR_VALIDATION_FAILED";
+    public static final String PROCESS_NOT_CONNECTED = "PROCESS_NOT_CONNECTED";
+    public static final String PROCESS_OPERATION_FAILED = "PROCESS_OPERATION_FAILED";
+    public static final String PROCESS_VALIDATION_FAILED = "PROCESS_VALIDATION_FAILED";
+    public static final String COMMAND_VALIDATION_FAILED = "COMMAND_VALIDATION_FAILED";
 
     private ErrorCode() {
     }

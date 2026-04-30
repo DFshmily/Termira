@@ -672,7 +672,7 @@ public final class ProfileStore {
         }
     }
 
-    private QuickCommand getQuickCommand(String id) throws AppError {
+    public QuickCommand getQuickCommand(String id) throws AppError {
         try (Connection connection = openConnection();
              PreparedStatement statement = connection.prepareStatement("""
                      SELECT id, profile_id, group_name, name, command, note, created_at, updated_at

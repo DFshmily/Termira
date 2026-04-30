@@ -1264,6 +1264,11 @@ h2 {
   align-content: start;
 }
 
+.tool-content--processes {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-content: stretch;
+}
+
 .sftp-browser-head {
   display: grid;
   gap: var(--space-2);
@@ -2264,6 +2269,70 @@ h2 {
 
 .process-row--system {
   color: var(--color-text-subtle);
+}
+
+.process-row--state {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.process-row--state span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.process-row span strong,
+.process-row span small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.process-row span strong {
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.process-row span small {
+  color: var(--color-text-subtle);
+  font-size: 11px;
+}
+
+.process-search {
+  flex: 1 1 180px;
+}
+
+.command-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  resize: vertical;
+  padding: 9px var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-1);
+  color: var(--color-text);
+  background: rgba(0, 0, 0, 0.18);
+  font: 12px/1.45 var(--font-mono);
+  outline: none;
+}
+
+.command-form textarea:focus {
+  border-color: rgba(66, 197, 173, 0.72);
+  box-shadow: 0 0 0 3px rgba(66, 197, 173, 0.12);
+}
+
+.command-form textarea:disabled {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+}
+
+.command-group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .command-card {

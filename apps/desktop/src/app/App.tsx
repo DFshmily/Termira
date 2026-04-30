@@ -56,7 +56,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode
 } from "react";
 import {
   DEFAULT_LANGUAGE,
@@ -278,6 +277,87 @@ type ForwardFormState = {
   autoStart: boolean;
 };
 
+type MonitorSnapshot = {
+  sessionId: string;
+  available: boolean;
+  collectedAt: string;
+  errorCode?: string;
+  errorMessage?: string;
+  cpu?: {
+    usagePercent: number;
+    totalTicks: number;
+    idleTicks: number;
+  };
+  memory?: {
+    totalBytes: number;
+    usedBytes: number;
+    availableBytes: number;
+    usagePercent: number;
+  };
+  disk?: {
+    path: string;
+    totalBytes: number;
+    usedBytes: number;
+    availableBytes: number;
+    usagePercent: number;
+  };
+  network?: {
+    rxBytes: number;
+    txBytes: number;
+    rxRateBytesPerSecond: number;
+    txRateBytesPerSecond: number;
+  };
+  load?: {
+    oneMinute: number;
+    fiveMinutes: number;
+    fifteenMinutes: number;
+  };
+  uptimeSeconds?: number;
+};
+
+type BackendProcessEntry = {
+  pid: number;
+  ppid: number;
+  user: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  state: string;
+  name: string;
+  command: string;
+};
+
+type ProcessListResult = {
+  sessionId: string;
+  collectedAt: string;
+  processes: BackendProcessEntry[];
+};
+
+type ProcessSortKey = "cpu" | "memory" | "pid" | "name";
+type ProcessSortDirection = "asc" | "desc";
+type ProcessSortState = {
+  key: ProcessSortKey;
+  direction: ProcessSortDirection;
+};
+
+type BackendQuickCommand = {
+  id: string;
+  profileId?: string;
+  groupName?: string;
+  name: string;
+  command: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type QuickCommandFormState = {
+  name: string;
+  groupName: string;
+  command: string;
+  note: string;
+  profileScoped: boolean;
+};
+
 type XTermEntry = {
   terminal: XTermTerminal;
   fitAddon: FitAddon;
@@ -288,15 +368,6 @@ type ToolDefinition = {
   id: ToolPanelId;
   label: LocalizedText;
   icon: LucideIcon;
-};
-
-type QuickCommand = {
-  id: string;
-  name: LocalizedText;
-  group: LocalizedText;
-  command: string;
-  note: LocalizedText;
-  disabled?: boolean;
 };
 
 type TerminalThemeDefinition = {
@@ -372,30 +443,13 @@ const toolDefinitions: ToolDefinition[] = [
   { id: "commands", label: { "zh-CN": "命令", "en-US": "Commands" }, icon: Command }
 ];
 
-const quickCommands: QuickCommand[] = [
-  {
-    id: "journal",
-    name: { "zh-CN": "查看服务日志", "en-US": "View service logs" },
-    group: { "zh-CN": "排障", "en-US": "Troubleshooting" },
-    command: "journalctl -u termira-api -f --since '30 minutes ago'",
-    note: { "zh-CN": "发送到当前终端", "en-US": "Send to active terminal" }
-  },
-  {
-    id: "disk",
-    name: { "zh-CN": "磁盘占用 Top 20", "en-US": "Disk usage top 20" },
-    group: { "zh-CN": "巡检", "en-US": "Inspection" },
-    command: "du -ah /srv/termira | sort -rh | head -20",
-    note: { "zh-CN": "只读命令", "en-US": "Read-only command" }
-  },
-  {
-    id: "restart",
-    name: { "zh-CN": "重启 API 服务", "en-US": "Restart API service" },
-    group: { "zh-CN": "维护", "en-US": "Maintenance" },
-    command: "sudo systemctl restart termira-api",
-    note: { "zh-CN": "需要连接后启用", "en-US": "Enabled after connection" },
-    disabled: true
-  }
-];
+const defaultQuickCommandForm: QuickCommandFormState = {
+  name: "",
+  groupName: "",
+  command: "",
+  note: "",
+  profileScoped: false
+};
 
 const hostStatusTone: Record<ConnectionState, StatusTone> = {
   connected: "good",
@@ -817,6 +871,21 @@ export function App() {
   const [isForwardLoading, setIsForwardLoading] = useState(false);
   const [isSavingForward, setIsSavingForward] = useState(false);
   const [forwardError, setForwardError] = useState<string | null>(null);
+  const [monitorSnapshot, setMonitorSnapshot] = useState<MonitorSnapshot | null>(null);
+  const [isMonitorLoading, setIsMonitorLoading] = useState(false);
+  const [monitorError, setMonitorError] = useState<string | null>(null);
+  const [processEntries, setProcessEntries] = useState<BackendProcessEntry[]>([]);
+  const [processSearch, setProcessSearch] = useState("");
+  const [processSort, setProcessSort] = useState<ProcessSortState>({ key: "cpu", direction: "desc" });
+  const [isProcessLoading, setIsProcessLoading] = useState(false);
+  const [processError, setProcessError] = useState<string | null>(null);
+  const [killingProcessPid, setKillingProcessPid] = useState<number | null>(null);
+  const [quickCommands, setQuickCommands] = useState<BackendQuickCommand[]>([]);
+  const [quickCommandForm, setQuickCommandForm] = useState<QuickCommandFormState>(defaultQuickCommandForm);
+  const [editingCommandId, setEditingCommandId] = useState("");
+  const [isCommandLoading, setIsCommandLoading] = useState(false);
+  const [isSavingCommand, setIsSavingCommand] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
 
   const text = getMessages(language);
   const terminalTabsRef = useRef<TerminalSession[]>([]);
@@ -833,6 +902,9 @@ export function App() {
   const sftpUploadTargetsRef = useRef<Map<string, string>>(new Map());
   const sftpRefreshTimersRef = useRef<Map<string, number>>(new Map());
   const forwardProfileIdRef = useRef("");
+  const monitorSessionIdRef = useRef("");
+  const processSessionIdRef = useRef("");
+  const commandProfileIdRef = useRef("");
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
   const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
   const placeholderHost = useMemo(() => createPlaceholderHost(language), [language]);
@@ -861,8 +933,16 @@ export function App() {
   const isSftpAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
   const isForwardSessionAvailable =
     activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId) && Boolean(forwardProfileId) && activeTerminal.hostId === forwardProfileId;
+  const isMonitorSessionAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
+  const isProcessSessionAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
+  const isCommandSessionAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId) && Boolean(activeTerminal.channelId);
   const selectedSftpEntry = sftpEntries.find((entry) => entry.path === selectedSftpPath);
   const sortedSftpEntries = useMemo(() => sortSftpEntries(sftpEntries, sftpSort), [sftpEntries, sftpSort]);
+  const sortedProcessEntries = useMemo(
+    () => filterAndSortProcesses(processEntries, processSearch, processSort),
+    [processEntries, processSearch, processSort]
+  );
+  const groupedQuickCommands = useMemo(() => groupQuickCommands(quickCommands), [quickCommands]);
   const shouldCloseActiveTerminalTab =
     activeTerminal.id !== "tab-preview" &&
     (activeTerminal.status === "disconnected" || activeTerminal.status === "failed" || activeTerminal.kind === "hostPicker");
@@ -1083,6 +1163,15 @@ export function App() {
   }, [forwardProfileId]);
 
   useEffect(() => {
+    monitorSessionIdRef.current = activeTerminal.sessionId ?? "";
+    processSessionIdRef.current = activeTerminal.sessionId ?? "";
+  }, [activeTerminal.sessionId]);
+
+  useEffect(() => {
+    commandProfileIdRef.current = forwardProfileId;
+  }, [forwardProfileId]);
+
+  useEffect(() => {
     sftpRefreshRef.current = (path?: string) => {
       void loadSftpPath(path ?? sftpContextRef.current.path);
     };
@@ -1091,6 +1180,42 @@ export function App() {
   useEffect(() => {
     if (activeTool === "forwards") {
       void loadForwardRules(forwardProfileId);
+    }
+  }, [activeTool, forwardProfileId]);
+
+  useEffect(() => {
+    if (activeTool !== "monitor") {
+      return undefined;
+    }
+    if (!isMonitorSessionAvailable || !activeTerminal.sessionId) {
+      setMonitorSnapshot(null);
+      setMonitorError(null);
+      setIsMonitorLoading(false);
+      return undefined;
+    }
+    const sessionId = activeTerminal.sessionId;
+    void startMonitor(sessionId);
+    return () => {
+      void window.termira.invoke("monitor.stop", { sessionId }).catch(() => undefined);
+    };
+  }, [activeTool, activeTerminal.sessionId, isMonitorSessionAvailable]);
+
+  useEffect(() => {
+    if (activeTool !== "processes") {
+      return;
+    }
+    if (!isProcessSessionAvailable || !activeTerminal.sessionId) {
+      setProcessEntries([]);
+      setProcessError(null);
+      setIsProcessLoading(false);
+      return;
+    }
+    void loadProcessList(activeTerminal.sessionId);
+  }, [activeTool, activeTerminal.sessionId, isProcessSessionAvailable]);
+
+  useEffect(() => {
+    if (activeTool === "commands") {
+      void loadQuickCommands(forwardProfileId);
     }
   }, [activeTool, forwardProfileId]);
 
@@ -1242,6 +1367,33 @@ export function App() {
       upsertForwardRule(rule as BackendForwardRule);
     };
 
+    const onMonitorSnapshot = (payload: unknown) => {
+      const snapshot = payload as Partial<MonitorSnapshot>;
+      if (typeof snapshot.sessionId !== "string" || typeof snapshot.available !== "boolean") {
+        return;
+      }
+      if (snapshot.sessionId !== monitorSessionIdRef.current) {
+        return;
+      }
+      const nextSnapshot = snapshot as MonitorSnapshot;
+      setMonitorSnapshot(nextSnapshot);
+      setMonitorError(nextSnapshot.available ? null : nextSnapshot.errorMessage ?? text.tools.monitor.unavailableReason);
+      setIsMonitorLoading(false);
+    };
+
+    const onProcessListUpdated = (payload: unknown) => {
+      const result = payload as Partial<ProcessListResult>;
+      if (typeof result.sessionId !== "string" || !Array.isArray(result.processes)) {
+        return;
+      }
+      if (result.sessionId !== processSessionIdRef.current) {
+        return;
+      }
+      setProcessEntries(result.processes as BackendProcessEntry[]);
+      setProcessError(null);
+      setIsProcessLoading(false);
+    };
+
     window.termira.removeAllListeners?.("terminal.output");
     window.termira.removeAllListeners?.("terminal.closed");
     window.termira.removeAllListeners?.("ssh.statusChanged");
@@ -1250,6 +1402,8 @@ export function App() {
     window.termira.removeAllListeners?.("transfer.completed");
     window.termira.removeAllListeners?.("transfer.failed");
     window.termira.removeAllListeners?.("forward.statusChanged");
+    window.termira.removeAllListeners?.("monitor.snapshot");
+    window.termira.removeAllListeners?.("process.listUpdated");
 
     window.termira.on("terminal.output", onOutput);
     window.termira.on("terminal.closed", onTerminalClosed);
@@ -1259,6 +1413,8 @@ export function App() {
     window.termira.on("transfer.completed", onTransferEvent);
     window.termira.on("transfer.failed", onTransferEvent);
     window.termira.on("forward.statusChanged", onForwardStatus);
+    window.termira.on("monitor.snapshot", onMonitorSnapshot);
+    window.termira.on("process.listUpdated", onProcessListUpdated);
 
     return () => {
       window.termira.off("terminal.output", onOutput);
@@ -1269,6 +1425,8 @@ export function App() {
       window.termira.off("transfer.completed", onTransferEvent);
       window.termira.off("transfer.failed", onTransferEvent);
       window.termira.off("forward.statusChanged", onForwardStatus);
+      window.termira.off("monitor.snapshot", onMonitorSnapshot);
+      window.termira.off("process.listUpdated", onProcessListUpdated);
     };
   }, []);
 
@@ -1900,20 +2058,189 @@ export function App() {
     void disconnectActiveTerminal();
   }
 
-  async function sendCommandToActiveTerminal(command: string) {
-    if (!activeTerminal.sessionId || !activeTerminal.channelId || activeTerminal.status !== "connected") {
-      setTerminalError(text.tools.commands.unavailable);
+  async function startMonitor(sessionId = activeTerminal.sessionId) {
+    if (!sessionId || activeTerminal.status !== "connected") {
+      setMonitorError(text.tools.monitor.noSession);
       return;
     }
-    setTerminalError(null);
+    setIsMonitorLoading(true);
+    setMonitorError(null);
     try {
-      await window.termira.invoke("terminal.write", {
+      const snapshot = await window.termira.invoke<MonitorSnapshot>("monitor.start", { sessionId });
+      setMonitorSnapshot(snapshot);
+      setMonitorError(snapshot.available ? null : snapshot.errorMessage ?? text.tools.monitor.unavailableReason);
+    } catch (error) {
+      setMonitorError(errorMessage(error));
+    } finally {
+      setIsMonitorLoading(false);
+    }
+  }
+
+  async function refreshMonitorSnapshot() {
+    const sessionId = activeTerminal.sessionId;
+    if (!sessionId || activeTerminal.status !== "connected") {
+      setMonitorError(text.tools.monitor.noSession);
+      return;
+    }
+    setIsMonitorLoading(true);
+    setMonitorError(null);
+    try {
+      const snapshot = await window.termira.invoke<MonitorSnapshot>("monitor.snapshot", { sessionId });
+      setMonitorSnapshot(snapshot);
+      setMonitorError(snapshot.available ? null : snapshot.errorMessage ?? text.tools.monitor.unavailableReason);
+    } catch (error) {
+      setMonitorError(errorMessage(error));
+    } finally {
+      setIsMonitorLoading(false);
+    }
+  }
+
+  async function loadProcessList(sessionId = activeTerminal.sessionId) {
+    if (!sessionId || activeTerminal.status !== "connected") {
+      setProcessError(text.tools.processes.noSession);
+      return;
+    }
+    setIsProcessLoading(true);
+    setProcessError(null);
+    try {
+      const result = await window.termira.invoke<ProcessListResult>("process.list", { sessionId });
+      setProcessEntries(result.processes);
+    } catch (error) {
+      setProcessError(errorMessage(error));
+    } finally {
+      setIsProcessLoading(false);
+    }
+  }
+
+  function changeProcessSort(key: ProcessSortKey) {
+    setProcessSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "desc" ? "asc" : "desc"
+    }));
+  }
+
+  async function killProcess(process: BackendProcessEntry) {
+    if (!activeTerminal.sessionId) {
+      setProcessError(text.tools.processes.noSession);
+      return;
+    }
+    const accepted = window.confirm(text.tools.processes.confirmKill(process.pid, process.name));
+    if (!accepted) {
+      return;
+    }
+    setKillingProcessPid(process.pid);
+    setProcessError(null);
+    try {
+      await window.termira.invoke("process.kill", {
+        sessionId: activeTerminal.sessionId,
+        pid: process.pid,
+        signal: "TERM"
+      });
+      await loadProcessList(activeTerminal.sessionId);
+    } catch (error) {
+      setProcessError(errorMessage(error));
+    } finally {
+      setKillingProcessPid(null);
+    }
+  }
+
+  async function loadQuickCommands(profileId = forwardProfileId) {
+    setIsCommandLoading(true);
+    setCommandError(null);
+    try {
+      const commands = await window.termira.invoke<BackendQuickCommand[]>("command.list", { profileId: profileId || undefined });
+      setQuickCommands(commands);
+    } catch (error) {
+      setCommandError(errorMessage(error));
+    } finally {
+      setIsCommandLoading(false);
+    }
+  }
+
+  function setQuickCommandFormField<Key extends keyof QuickCommandFormState>(field: Key, value: QuickCommandFormState[Key]) {
+    setQuickCommandForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetQuickCommandForm() {
+    setQuickCommandForm(defaultQuickCommandForm);
+    setEditingCommandId("");
+    setCommandError(null);
+  }
+
+  function editQuickCommand(command: BackendQuickCommand) {
+    setEditingCommandId(command.id);
+    setQuickCommandForm({
+      name: command.name,
+      groupName: command.groupName ?? "",
+      command: command.command,
+      note: command.note ?? "",
+      profileScoped: Boolean(command.profileId)
+    });
+    setCommandError(null);
+  }
+
+  async function submitQuickCommand(event?: FormEvent) {
+    event?.preventDefault();
+    if (!quickCommandForm.name.trim()) {
+      setCommandError(text.tools.commands.nameRequired);
+      return;
+    }
+    if (!quickCommandForm.command.trim()) {
+      setCommandError(text.tools.commands.commandRequired);
+      return;
+    }
+    setIsSavingCommand(true);
+    setCommandError(null);
+    try {
+      const payload = {
+        id: editingCommandId || undefined,
+        profileId: quickCommandForm.profileScoped && forwardProfileId ? forwardProfileId : undefined,
+        groupName: quickCommandForm.groupName.trim() || undefined,
+        name: quickCommandForm.name.trim(),
+        command: quickCommandForm.command.trim(),
+        note: quickCommandForm.note.trim() || undefined
+      };
+      const saved = await window.termira.invoke<BackendQuickCommand>(editingCommandId ? "command.update" : "command.create", payload);
+      setQuickCommands((current) => sortQuickCommands([saved, ...current.filter((item) => item.id !== saved.id)]));
+      resetQuickCommandForm();
+    } catch (error) {
+      setCommandError(errorMessage(error));
+    } finally {
+      setIsSavingCommand(false);
+    }
+  }
+
+  async function deleteQuickCommand(command: BackendQuickCommand) {
+    const accepted = window.confirm(text.tools.commands.confirmDelete(command.name));
+    if (!accepted) {
+      return;
+    }
+    setCommandError(null);
+    try {
+      await window.termira.invoke("command.delete", { id: command.id });
+      setQuickCommands((current) => current.filter((item) => item.id !== command.id));
+      if (editingCommandId === command.id) {
+        resetQuickCommandForm();
+      }
+    } catch (error) {
+      setCommandError(errorMessage(error));
+    }
+  }
+
+  async function sendQuickCommand(command: BackendQuickCommand) {
+    if (!activeTerminal.sessionId || !activeTerminal.channelId || activeTerminal.status !== "connected") {
+      setCommandError(text.tools.commands.unavailable);
+      return;
+    }
+    setCommandError(null);
+    try {
+      await window.termira.invoke("command.sendToTerminal", {
         sessionId: activeTerminal.sessionId,
         channelId: activeTerminal.channelId,
-        data: `${command}\n`
+        commandId: command.id
       });
     } catch (error) {
-      setTerminalError(errorMessage(error));
+      setCommandError(errorMessage(error));
     }
   }
 
@@ -3165,62 +3492,369 @@ export function App() {
   }
 
   function renderMonitorPanel() {
+    const snapshot = monitorSnapshot;
+    const canUseMonitor = isMonitorSessionAvailable && Boolean(activeTerminal.sessionId);
+
     return (
       <div className="tool-content">
-        {renderFutureToolPanel(<Gauge size={18} aria-hidden="true" />, text.tools.monitor.unavailable)}
+        <div className="split-actions">
+          <button
+            className="button button--compact"
+            type="button"
+            disabled={!canUseMonitor || isMonitorLoading}
+            onClick={() => void refreshMonitorSnapshot()}
+          >
+            {isMonitorLoading ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+            <span>{text.tools.monitor.refresh}</span>
+          </button>
+          <span className="queue-count queue-count--idle">{text.tools.monitor.refreshing}</span>
+        </div>
+
+        {!canUseMonitor ? (
+          <div className="inline-state">
+            <Gauge size={15} aria-hidden="true" />
+            <span>{text.tools.monitor.noSession}</span>
+          </div>
+        ) : null}
+
+        {monitorError ? (
+          <div className="inline-state inline-state--error">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{monitorError}</span>
+          </div>
+        ) : null}
+
+        {snapshot?.available ? (
+          <>
+            <div className="monitor-summary">
+              <div>
+                <Cpu size={17} aria-hidden="true" />
+                <span>CPU</span>
+                <strong>{formatPercent(snapshot.cpu?.usagePercent)}</strong>
+              </div>
+              <div>
+                <Gauge size={17} aria-hidden="true" />
+                <span>{text.tools.monitor.memory}</span>
+                <strong>{formatPercent(snapshot.memory?.usagePercent)}</strong>
+              </div>
+              <div>
+                <Server size={17} aria-hidden="true" />
+                <span>{text.tools.monitor.disk}</span>
+                <strong>{formatPercent(snapshot.disk?.usagePercent)}</strong>
+              </div>
+              <div>
+                <Network size={17} aria-hidden="true" />
+                <span>{text.tools.monitor.network}</span>
+                <strong>{formatRate(snapshot.network?.rxRateBytesPerSecond)} / {formatRate(snapshot.network?.txRateBytesPerSecond)}</strong>
+              </div>
+            </div>
+
+            <div className="metric-stack">
+              {renderMetricCard("CPU", snapshot.cpu?.usagePercent ?? 0, text.tools.monitor.cpuDetail)}
+              {renderMetricCard(
+                text.tools.monitor.memory,
+                snapshot.memory?.usagePercent ?? 0,
+                `${formatBytes(snapshot.memory?.usedBytes ?? 0)} / ${formatBytes(snapshot.memory?.totalBytes ?? 0)}`
+              )}
+              {renderMetricCard(
+                `${text.tools.monitor.disk} ${snapshot.disk?.path ?? "/"}`,
+                snapshot.disk?.usagePercent ?? 0,
+                `${formatBytes(snapshot.disk?.usedBytes ?? 0)} / ${formatBytes(snapshot.disk?.totalBytes ?? 0)}`
+              )}
+              <article className="metric-card metric-card--muted">
+                <div className="metric-card-head">
+                  <strong>{text.tools.monitor.load}</strong>
+                  <small>{snapshot.load ? `${snapshot.load.oneMinute} / ${snapshot.load.fiveMinutes} / ${snapshot.load.fifteenMinutes}` : "-"}</small>
+                </div>
+                <div className="metric-card-head">
+                  <strong>{text.tools.monitor.uptime}</strong>
+                  <small>{formatUptime(snapshot.uptimeSeconds)}</small>
+                </div>
+                <div className="metric-card-head">
+                  <strong>{text.tools.monitor.updatedAt}</strong>
+                  <small>{formatRemoteTime(snapshot.collectedAt)}</small>
+                </div>
+              </article>
+            </div>
+          </>
+        ) : !isMonitorLoading ? (
+          <div className="queue-empty-state">
+            <span>{canUseMonitor ? text.tools.monitor.empty : text.tools.monitor.noSession}</span>
+          </div>
+        ) : null}
       </div>
     );
   }
 
-  function renderProcessesPanel() {
+  function renderMetricCard(label: string, value: number, detail: string) {
+    const tone = value >= 85 ? "bad" : value >= 65 ? "warn" : "muted";
     return (
-      <div className="tool-content">
-        {renderFutureToolPanel(<Cpu size={18} aria-hidden="true" />, text.tools.processes.unavailable)}
+      <article className={`metric-card metric-card--${tone}`}>
+        <div className="metric-card-head">
+          <strong>{label}</strong>
+          <small>{formatPercent(value)}</small>
+        </div>
+        <div className="progress-track">
+          <span style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+        </div>
+        <small>{detail}</small>
+      </article>
+    );
+  }
+
+  function renderProcessesPanel() {
+    const canUseProcesses = isProcessSessionAvailable && Boolean(activeTerminal.sessionId);
+    const renderSortButton = (key: ProcessSortKey, label: string) => {
+      const isActive = processSort.key === key;
+      const Icon = isActive && processSort.direction === "desc" ? ArrowDown : ArrowUp;
+      return (
+        <button
+          className={`file-sort-button ${isActive ? "is-active" : ""}`}
+          type="button"
+          aria-label={text.tools.processes.sortBy(label)}
+          onClick={() => changeProcessSort(key)}
+        >
+          <span>{label}</span>
+          {isActive ? <Icon size={13} aria-hidden="true" /> : null}
+        </button>
+      );
+    };
+
+    return (
+      <div className="tool-content tool-content--processes">
+        <div className="split-actions">
+          <label className="search-box search-box--compact process-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={processSearch}
+              placeholder={text.tools.processes.searchPlaceholder}
+              onChange={(event) => setProcessSearch(event.currentTarget.value)}
+            />
+          </label>
+          <button
+            className="button button--compact"
+            type="button"
+            disabled={!canUseProcesses || isProcessLoading}
+            onClick={() => void loadProcessList(activeTerminal.sessionId)}
+          >
+            {isProcessLoading ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+            <span>{text.actions.refresh}</span>
+          </button>
+        </div>
+
+        {!canUseProcesses ? (
+          <div className="inline-state">
+            <Cpu size={15} aria-hidden="true" />
+            <span>{text.tools.processes.noSession}</span>
+          </div>
+        ) : null}
+
+        {processError ? (
+          <div className="inline-state inline-state--error">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{processError}</span>
+          </div>
+        ) : null}
+
+        <div className="process-table" aria-label={text.tools.processes.title}>
+          <div className="process-row process-row--head">
+            {renderSortButton("pid", "PID")}
+            {renderSortButton("cpu", "CPU")}
+            {renderSortButton("memory", "MEM")}
+            {renderSortButton("name", text.tools.processes.command)}
+            <span />
+          </div>
+          {isProcessLoading ? (
+            <div className="process-row process-row--state">
+              <span>
+                <Loader2 className="spin-icon" size={14} aria-hidden="true" />
+                {text.tools.processes.loading}
+              </span>
+            </div>
+          ) : sortedProcessEntries.length > 0 ? (
+            sortedProcessEntries.map((process) => (
+              <div
+                key={`${process.pid}-${process.command}`}
+                className={`process-row ${process.cpuPercent >= 50 ? "process-row--hot" : ""} ${process.user === "root" ? "process-row--system" : ""}`}
+                title={process.command}
+              >
+                <span>{process.pid}</span>
+                <span>{formatPercent(process.cpuPercent)}</span>
+                <span>{formatPercent(process.memoryPercent)}</span>
+                <span>
+                  <strong>{process.name}</strong>
+                  <small>{process.command}</small>
+                </span>
+                <button
+                  className="icon-button icon-button--danger"
+                  type="button"
+                  title={text.tools.processes.kill}
+                  aria-label={text.tools.processes.kill}
+                  disabled={!canUseProcesses || killingProcessPid === process.pid}
+                  onClick={() => void killProcess(process)}
+                >
+                  {killingProcessPid === process.pid ? <Loader2 className="spin-icon" size={13} aria-hidden="true" /> : <Trash2 size={13} aria-hidden="true" />}
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="process-row process-row--state">
+              <span>{canUseProcesses ? text.tools.processes.empty : text.tools.processes.noSession}</span>
+            </div>
+          )}
+        </div>
+        <span className="queue-count queue-count--idle">{text.tools.processes.loaded(sortedProcessEntries.length)}</span>
       </div>
     );
   }
 
   function renderCommandsPanel() {
+    const canSendCommands = isCommandSessionAvailable;
+    const isEditing = Boolean(editingCommandId);
+
     return (
       <div className="tool-content">
-        <div className="split-actions">
-          <button className="button button--compact button--accent" type="button" disabled>
-            <Plus size={15} aria-hidden="true" />
-            <span>{text.tools.commands.newCommand}</span>
-          </button>
-          <button className="button button--compact" type="button" disabled>
-            <Folder size={15} aria-hidden="true" />
-            <span>{text.tools.commands.groups}</span>
-          </button>
-        </div>
-        <div className="inline-state">
-          <Zap size={15} aria-hidden="true" />
-          <span>{text.tools.commands.unavailable}</span>
-        </div>
+        <form className="forward-form command-form" onSubmit={(event) => void submitQuickCommand(event)}>
+          <div className="subpanel-heading">
+            <span>{isEditing ? text.tools.commands.editCommand : text.tools.commands.newCommand}</span>
+            <button className="button button--compact" type="button" disabled={!isEditing && quickCommandForm === defaultQuickCommandForm} onClick={resetQuickCommandForm}>
+              <X size={14} aria-hidden="true" />
+              <span>{text.tools.forwards.cancelEdit}</span>
+            </button>
+          </div>
+          <div className="forward-grid">
+            <label className="form-field">
+              <span>{text.tools.commands.name}</span>
+              <input
+                value={quickCommandForm.name}
+                disabled={isSavingCommand}
+                onChange={(event) => setQuickCommandFormField("name", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field">
+              <span>{text.tools.commands.group}</span>
+              <input
+                value={quickCommandForm.groupName}
+                disabled={isSavingCommand}
+                onChange={(event) => setQuickCommandFormField("groupName", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field form-field--wide">
+              <span>{text.tools.commands.content}</span>
+              <textarea
+                value={quickCommandForm.command}
+                disabled={isSavingCommand}
+                spellCheck={false}
+                onChange={(event) => setQuickCommandFormField("command", event.currentTarget.value)}
+              />
+            </label>
+            <label className="form-field form-field--wide">
+              <span>{text.tools.commands.note}</span>
+              <input
+                value={quickCommandForm.note}
+                disabled={isSavingCommand}
+                onChange={(event) => setQuickCommandFormField("note", event.currentTarget.value)}
+              />
+            </label>
+            <label className="toggle-field form-field--wide">
+              <input
+                type="checkbox"
+                checked={quickCommandForm.profileScoped}
+                disabled={isSavingCommand || !forwardProfileId}
+                onChange={(event) => setQuickCommandFormField("profileScoped", event.currentTarget.checked)}
+              />
+              <span>{text.tools.commands.profileScoped}</span>
+            </label>
+          </div>
+          <div className="split-actions">
+            <button className="button button--compact button--accent" type="submit" disabled={isSavingCommand}>
+              {isSavingCommand ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+              <span>{isEditing ? text.tools.commands.updateCommand : text.tools.commands.saveCommand}</span>
+            </button>
+            <button className="button button--compact" type="button" disabled={isCommandLoading} onClick={() => void loadQuickCommands(forwardProfileId)}>
+              <RefreshCw size={14} aria-hidden="true" />
+              <span>{text.actions.refresh}</span>
+            </button>
+          </div>
+        </form>
+
+        {!canSendCommands ? (
+          <div className="inline-state">
+            <Zap size={15} aria-hidden="true" />
+            <span>{text.tools.commands.unavailable}</span>
+          </div>
+        ) : null}
+
+        {commandError ? (
+          <div className="inline-state inline-state--error">
+            <AlertTriangle size={15} aria-hidden="true" />
+            <span>{commandError}</span>
+          </div>
+        ) : null}
 
         <div className="command-list">
-          {quickCommands.map((command) => (
-            <article key={command.id} className="command-card">
-              <div className="command-card-head">
-                <div>
-                  <span>{translate(command.group, language)}</span>
-                  <strong>{translate(command.name, language)}</strong>
+          {isCommandLoading ? (
+            <div className="queue-empty-state">
+              <Loader2 className="spin-icon" size={14} aria-hidden="true" />
+              <span>{text.tools.commands.loading}</span>
+            </div>
+          ) : groupedQuickCommands.length > 0 ? (
+            groupedQuickCommands.map((group) => (
+              <section key={group.groupName || "__default"} className="command-group">
+                <div className="subpanel-heading">
+                  <span>{group.groupName || text.tools.commands.defaultGroup}</span>
+                  <strong className="queue-count queue-count--idle">{group.commands.length}</strong>
                 </div>
-                <button
-                  className="button button--compact"
-                  type="button"
-                  disabled={command.disabled || activeTerminal.status !== "connected"}
-                  title={text.tools.commands.send}
-                  onClick={() => sendCommandToActiveTerminal(command.command)}
-                >
-                  <Zap size={14} aria-hidden="true" />
-                  <span>{text.tools.commands.send}</span>
-                </button>
-              </div>
-              <code title={command.command}>{command.command}</code>
-              <small>{translate(command.note, language)}</small>
-            </article>
-          ))}
+                {group.commands.map((command) => (
+                  <article key={command.id} className="command-card">
+                    <div className="command-card-head">
+                      <div>
+                        <span>{command.profileId ? text.tools.commands.hostScoped : text.tools.commands.globalScoped}</span>
+                        <strong>{command.name}</strong>
+                      </div>
+                      <span className="rule-actions">
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title={text.tools.commands.send}
+                          aria-label={text.tools.commands.send}
+                          disabled={!canSendCommands}
+                          onClick={() => void sendQuickCommand(command)}
+                        >
+                          <Zap size={13} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title={text.tools.commands.editCommand}
+                          aria-label={text.tools.commands.editCommand}
+                          onClick={() => editQuickCommand(command)}
+                        >
+                          <Pencil size={13} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="icon-button icon-button--danger"
+                          type="button"
+                          title={text.tools.commands.deleteCommand}
+                          aria-label={text.tools.commands.deleteCommand}
+                          onClick={() => void deleteQuickCommand(command)}
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                      </span>
+                    </div>
+                    <code title={command.command}>{command.command}</code>
+                    {command.note ? <small>{command.note}</small> : null}
+                  </article>
+                ))}
+              </section>
+            ))
+          ) : (
+            <div className="queue-empty-state">
+              <span>{text.tools.commands.empty}</span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3329,15 +3963,6 @@ export function App() {
       default:
         return assertNever(activeTool);
     }
-  }
-
-  function renderFutureToolPanel(icon: ReactNode, message: string) {
-    return (
-      <div className="tool-future">
-        <span>{icon}</span>
-        <strong>{message}</strong>
-      </div>
-    );
   }
 
   function renderToolSideRail() {
@@ -4318,6 +4943,88 @@ function sortForwardRules(rules: BackendForwardRule[]): BackendForwardRule[] {
     }
     return left.name.localeCompare(right.name);
   });
+}
+
+function filterAndSortProcesses(entries: BackendProcessEntry[], queryText: string, sort: ProcessSortState): BackendProcessEntry[] {
+  const query = queryText.trim().toLocaleLowerCase();
+  const filtered = query
+    ? entries.filter((entry) =>
+        [entry.pid, entry.ppid, entry.user, entry.name, entry.command, entry.state].join(" ").toLocaleLowerCase().includes(query)
+      )
+    : entries;
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return [...filtered].sort((left, right) => {
+    const compared = compareProcessEntry(left, right, sort.key);
+    if (compared !== 0) {
+      return compared * direction;
+    }
+    return right.cpuPercent - left.cpuPercent || left.pid - right.pid;
+  });
+}
+
+function compareProcessEntry(left: BackendProcessEntry, right: BackendProcessEntry, key: ProcessSortKey): number {
+  if (key === "cpu") {
+    return left.cpuPercent - right.cpuPercent;
+  }
+  if (key === "memory") {
+    return left.memoryPercent - right.memoryPercent;
+  }
+  if (key === "pid") {
+    return left.pid - right.pid;
+  }
+  return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortQuickCommands(commands: BackendQuickCommand[]): BackendQuickCommand[] {
+  return [...commands].sort((left, right) => {
+    const byGroup = (left.groupName || "").localeCompare(right.groupName || "", undefined, { numeric: true, sensitivity: "base" });
+    if (byGroup !== 0) {
+      return byGroup;
+    }
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function groupQuickCommands(commands: BackendQuickCommand[]): Array<{ groupName: string; commands: BackendQuickCommand[] }> {
+  const groups = new Map<string, BackendQuickCommand[]>();
+  for (const command of sortQuickCommands(commands)) {
+    const groupName = command.groupName?.trim() || "";
+    groups.set(groupName, [...(groups.get(groupName) ?? []), command]);
+  }
+  return Array.from(groups.entries()).map(([groupName, groupedCommands]) => ({
+    groupName,
+    commands: groupedCommands
+  }));
+}
+
+function formatPercent(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`;
+}
+
+function formatRate(value?: number): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return "0 B/s";
+  }
+  return `${formatBytes(value)}/s`;
+}
+
+function formatUptime(seconds?: number): string {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
+    return "-";
+  }
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
 }
 
 function formatForwardBind(rule: BackendForwardRule): string {

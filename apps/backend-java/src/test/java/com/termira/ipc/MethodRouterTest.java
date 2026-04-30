@@ -11,6 +11,7 @@ import com.termira.forwarding.ForwardRuleView;
 import com.termira.profile.AuthConfig;
 import com.termira.profile.HostProfile;
 import com.termira.profile.HostProfileInput;
+import com.termira.profile.QuickCommand;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +127,33 @@ class MethodRouterTest {
         assertThat(updated.name()).isEqualTo("Local app");
 
         Object deleted = router.route(new IpcRequest("req_forward_delete", "request", "forward.delete", json(Map.of("id", rule.id()))));
+        assertThat(((Map<?, ?>) deleted).get("deleted")).isEqualTo(true);
+    }
+
+    @Test
+    void routesCommandCrudAliases() throws Exception {
+        MethodRouter router = new MethodRouter(tempDir);
+
+        QuickCommand created = (QuickCommand) router.route(new IpcRequest("req_command_create", "request", "command.create", json(Map.of(
+                "groupName", "Inspect",
+                "name", "List logs",
+                "command", "ls -lah /var/log",
+                "note", "Read only"
+        ))));
+
+        Object listed = router.route(new IpcRequest("req_command_list", "request", "command.list", null));
+        assertThat(listed).asList().extracting("id").containsExactly(created.id());
+
+        QuickCommand updated = (QuickCommand) router.route(new IpcRequest("req_command_update", "request", "command.update", json(Map.of(
+                "id", created.id(),
+                "groupName", "Inspect",
+                "name", "Tail syslog",
+                "command", "tail -f /var/log/syslog"
+        ))));
+        assertThat(updated.name()).isEqualTo("Tail syslog");
+        assertThat(updated.command()).isEqualTo("tail -f /var/log/syslog");
+
+        Object deleted = router.route(new IpcRequest("req_command_delete", "request", "command.delete", json(Map.of("id", created.id()))));
         assertThat(((Map<?, ?>) deleted).get("deleted")).isEqualTo(true);
     }
 

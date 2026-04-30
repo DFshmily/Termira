@@ -11,24 +11,32 @@ import com.termira.vault.CredentialRecord;
 import com.termira.vault.VaultManager;
 import java.io.StringReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.common.DisconnectReason;
 import net.schmizz.sshj.common.SSHException;
+import net.schmizz.sshj.connection.channel.direct.Session;
 import net.schmizz.sshj.sftp.SFTPClient;
 import net.schmizz.sshj.transport.TransportException;
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
@@ -132,11 +140,65 @@ public final class SshSessionManager implements AutoCloseable {
     }
 
     public SSHClient requireConnectedClient(String sessionId) throws AppError {
+        return requireConnectedClient(sessionId, ErrorCode.FORWARD_NOT_CONNECTED, "SSH session is not connected.");
+    }
+
+    public SSHClient requireConnectedClient(String sessionId, String errorCode, String message) throws AppError {
         SshSessionHandle handle = requireSession(sessionId);
         if (handle.status() != SshStatus.CONNECTED || !handle.client().isConnected() || !handle.client().isAuthenticated()) {
-            throw new AppError(ErrorCode.FORWARD_NOT_CONNECTED, "SSH session is not connected.", Map.of("sessionId", sessionId));
+            throw new AppError(errorCode, message, Map.of("sessionId", sessionId));
         }
         return handle.client();
+    }
+
+    public RemoteCommandResult exec(
+            String sessionId,
+            String command,
+            int timeoutMs,
+            String disconnectedErrorCode,
+            String operationErrorCode
+    ) throws AppError {
+        String id = requireText(sessionId, "sessionId");
+        String remoteCommand = requireText(command, "command");
+        int timeout = Math.max(500, timeoutMs);
+        SSHClient client = requireConnectedClient(id, disconnectedErrorCode, "SSH session is not connected.");
+        String startedAt = Instant.now().toString();
+
+        try (Session sshSession = client.startSession()) {
+            Session.Command exec = sshSession.exec(remoteCommand);
+            Future<String> stdout = terminalExecutor.submit(() -> readAll(exec.getInputStream()));
+            Future<String> stderr = terminalExecutor.submit(() -> readAll(exec.getErrorStream()));
+            try {
+                exec.join(timeout, TimeUnit.MILLISECONDS);
+                Integer exitStatus = exec.getExitStatus();
+                if (exitStatus == null) {
+                    closeCommandQuietly(exec);
+                    throw new AppError(
+                            operationErrorCode,
+                            "Remote command timed out.",
+                            Map.of("sessionId", id, "timeoutMs", timeout)
+                    );
+                }
+                return new RemoteCommandResult(
+                        id,
+                        exitStatus,
+                        readFuture(stdout, operationErrorCode),
+                        readFuture(stderr, operationErrorCode),
+                        startedAt,
+                        Instant.now().toString()
+                );
+            } finally {
+                closeCommandQuietly(exec);
+            }
+        } catch (AppError error) {
+            throw error;
+        } catch (Exception error) {
+            throw new AppError(
+                    operationErrorCode,
+                    "Failed to execute remote command.",
+                    Map.of("sessionId", id, "cause", error.getClass().getSimpleName())
+            );
+        }
     }
 
     public Map<String, Object> openShell(TerminalOpenShellRequest request) throws AppError {
@@ -356,6 +418,36 @@ public final class SshSessionManager implements AutoCloseable {
     private void emitStatus(SshSessionHandle handle, SshStatus status) {
         handle.status(status);
         eventSink.emit(IpcEvent.create("ssh.statusChanged", handle.view()));
+    }
+
+    private String readAll(InputStream stream) throws IOException {
+        return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    private String readFuture(Future<String> future, String operationErrorCode) throws AppError {
+        try {
+            return future.get(500, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new AppError(operationErrorCode, "Interrupted while reading remote command output.");
+        } catch (ExecutionException error) {
+            throw new AppError(
+                    operationErrorCode,
+                    "Failed to read remote command output.",
+                    Map.of("cause", error.getCause() == null ? error.getClass().getSimpleName() : error.getCause().getClass().getSimpleName())
+            );
+        } catch (TimeoutException error) {
+            future.cancel(true);
+            throw new AppError(operationErrorCode, "Timed out while reading remote command output.");
+        }
+    }
+
+    private void closeCommandQuietly(Session.Command command) {
+        try {
+            command.close();
+        } catch (IOException error) {
+            LOGGER.debug("Remote command close failed", error);
+        }
     }
 
     AppError mapConnectError(Exception error) {

@@ -238,3 +238,100 @@ export type TransferView = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type MonitorSnapshot = {
+  sessionId: string;
+  available: boolean;
+  collectedAt: string;
+  errorCode?: string;
+  errorMessage?: string;
+  cpu?: {
+    usagePercent: number;
+    totalTicks: number;
+    idleTicks: number;
+  };
+  memory?: {
+    totalBytes: number;
+    usedBytes: number;
+    availableBytes: number;
+    usagePercent: number;
+  };
+  disk?: {
+    path: string;
+    totalBytes: number;
+    usedBytes: number;
+    availableBytes: number;
+    usagePercent: number;
+  };
+  network?: {
+    rxBytes: number;
+    txBytes: number;
+    rxRateBytesPerSecond: number;
+    txRateBytesPerSecond: number;
+  };
+  load?: {
+    oneMinute: number;
+    fiveMinutes: number;
+    fifteenMinutes: number;
+  };
+  uptimeSeconds?: number;
+};
+
+export type MonitorRequestParams = {
+  sessionId: string;
+  intervalMs?: number;
+};
+
+export type ProcessEntry = {
+  pid: number;
+  ppid: number;
+  user: string;
+  cpuPercent: number;
+  memoryPercent: number;
+  state: string;
+  name: string;
+  command: string;
+};
+
+export type ProcessListParams = {
+  sessionId: string;
+};
+
+export type ProcessListResult = {
+  sessionId: string;
+  collectedAt: string;
+  processes: ProcessEntry[];
+};
+
+export type ProcessKillParams = {
+  sessionId: string;
+  pid: number;
+  signal?: "TERM" | "KILL" | "INT" | "HUP";
+};
+
+export type QuickCommand = {
+  id: string;
+  profileId?: string;
+  groupName?: string;
+  name: string;
+  command: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type QuickCommandInput = {
+  id?: string;
+  profileId?: string;
+  groupName?: string;
+  name: string;
+  command: string;
+  note?: string;
+};
+
+export type CommandSendToTerminalParams = {
+  sessionId: string;
+  channelId: string;
+  commandId?: string;
+  command?: string;
+};
