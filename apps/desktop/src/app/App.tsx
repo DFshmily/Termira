@@ -4,6 +4,7 @@ import { Terminal as XTermTerminal, type IDisposable, type ITheme } from "@xterm
 import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowUp,
   BarChart3,
   Ban,
@@ -209,6 +210,13 @@ type SftpFileEntry = {
   directory: boolean;
   regularFile: boolean;
   symlink: boolean;
+};
+
+type SftpSortKey = "name" | "modified" | "size" | "permissions";
+type SftpSortDirection = "asc" | "desc";
+type SftpSortState = {
+  key: SftpSortKey;
+  direction: SftpSortDirection;
 };
 
 type SftpListResult = {
@@ -746,6 +754,9 @@ export function App() {
   const [sftpDragTargetPath, setSftpDragTargetPath] = useState<string | null>(null);
   const [isCreatingSftpDirectory, setIsCreatingSftpDirectory] = useState(false);
   const [newSftpDirectoryName, setNewSftpDirectoryName] = useState("");
+  const [renamingSftpPath, setRenamingSftpPath] = useState("");
+  const [sftpRenameName, setSftpRenameName] = useState("");
+  const [sftpSort, setSftpSort] = useState<SftpSortState>({ key: "name", direction: "asc" });
   const [isSftpLoading, setIsSftpLoading] = useState(false);
   const [sftpError, setSftpError] = useState<string | null>(null);
   const [sftpTransfers, setSftpTransfers] = useState<SftpTransfer[]>([]);
@@ -759,6 +770,7 @@ export function App() {
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const newSftpDirectoryInputRef = useRef<HTMLInputElement | null>(null);
+  const renameSftpInputRef = useRef<HTMLInputElement | null>(null);
   const sftpContextRef = useRef({ sessionId: "", path: "~" });
   const sftpRefreshRef = useRef<(path?: string) => void>(() => undefined);
   const sftpUploadTargetsRef = useRef<Map<string, string>>(new Map());
@@ -787,6 +799,7 @@ export function App() {
   const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
   const isSftpAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
   const selectedSftpEntry = sftpEntries.find((entry) => entry.path === selectedSftpPath);
+  const sortedSftpEntries = useMemo(() => sortSftpEntries(sftpEntries, sftpSort), [sftpEntries, sftpSort]);
   const shouldCloseActiveTerminalTab =
     activeTerminal.id !== "tab-preview" &&
     (activeTerminal.status === "disconnected" || activeTerminal.status === "failed" || activeTerminal.kind === "hostPicker");
@@ -1192,6 +1205,13 @@ export function App() {
       newSftpDirectoryInputRef.current?.select();
     }
   }, [isCreatingSftpDirectory]);
+
+  useEffect(() => {
+    if (renamingSftpPath) {
+      renameSftpInputRef.current?.focus();
+      renameSftpInputRef.current?.select();
+    }
+  }, [renamingSftpPath]);
 
   useEffect(() => {
     const resizeActiveTerminal = () => {
@@ -1829,6 +1849,8 @@ export function App() {
       setSftpDragTargetPath(null);
       setIsCreatingSftpDirectory(false);
       setNewSftpDirectoryName("");
+      setRenamingSftpPath("");
+      setSftpRenameName("");
     } catch (error) {
       setSftpError(errorMessage(error));
     } finally {
@@ -1878,6 +1900,8 @@ export function App() {
       return;
     }
     setSelectedSftpPath("");
+    setRenamingSftpPath("");
+    setSftpRenameName("");
     setSftpError(null);
     setNewSftpDirectoryName("");
     setIsCreatingSftpDirectory(true);
@@ -1895,31 +1919,69 @@ export function App() {
       setSftpError(text.tools.files.folderNameRequired);
       return;
     }
-    await runSftpOperation(() =>
+    const created = await runSftpOperation(() =>
       window.termira.invoke("sftp.mkdir", {
         sessionId: activeTerminal.sessionId,
         path: joinRemotePath(sftpPath, name)
       })
     );
+    if (!created) {
+      return;
+    }
     setIsCreatingSftpDirectory(false);
     setNewSftpDirectoryName("");
   }
 
-  async function renameSftpEntry() {
+  function startRenamingSftpEntry() {
     if (!selectedSftpEntry) {
       return;
     }
-    const name = window.prompt(text.tools.files.renamePrompt, selectedSftpEntry.name);
-    if (!name?.trim() || name.trim() === selectedSftpEntry.name) {
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
+    setSftpError(null);
+    setRenamingSftpPath(selectedSftpEntry.path);
+    setSftpRenameName(selectedSftpEntry.name);
+  }
+
+  function cancelRenamingSftpEntry() {
+    setRenamingSftpPath("");
+    setSftpRenameName("");
+  }
+
+  function changeSftpSort(key: SftpSortKey) {
+    setSftpSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  async function renameSftpEntry(event?: FormEvent) {
+    event?.preventDefault();
+    const entry = sftpEntries.find((item) => item.path === renamingSftpPath) ?? selectedSftpEntry;
+    if (!entry) {
       return;
     }
-    await runSftpOperation(() =>
+    const name = sftpRenameName.trim();
+    if (!name || name.includes("/")) {
+      setSftpError(text.tools.files.renameNameRequired);
+      return;
+    }
+    if (name === entry.name) {
+      cancelRenamingSftpEntry();
+      return;
+    }
+    const targetPath = joinRemotePath(sftpPath, name);
+    const renamed = await runSftpOperation(() =>
       window.termira.invoke("sftp.rename", {
         sessionId: activeTerminal.sessionId,
-        sourcePath: selectedSftpEntry.path,
-        targetPath: joinRemotePath(sftpPath, name.trim())
+        sourcePath: entry.path,
+        targetPath
       })
     );
+    if (renamed) {
+      cancelRenamingSftpEntry();
+      setSelectedSftpPath(targetPath);
+    }
   }
 
   async function removeSftpEntry() {
@@ -1939,17 +2001,19 @@ export function App() {
     );
   }
 
-  async function runSftpOperation(operation: () => Promise<unknown>) {
+  async function runSftpOperation(operation: () => Promise<unknown>): Promise<boolean> {
     if (!activeTerminal.sessionId) {
       setSftpError(text.tools.files.noSession);
-      return;
+      return false;
     }
     setSftpError(null);
     try {
       await operation();
       await loadSftpPath(sftpPath);
+      return true;
     } catch (error) {
       setSftpError(errorMessage(error));
+      return false;
     }
   }
 
@@ -2300,6 +2364,21 @@ export function App() {
     const canDownload = Boolean(selectedSftpEntry && !selectedSftpEntry.directory);
     const canMutate = Boolean(selectedSftpEntry);
     const queueStyle = { "--sftp-queue-height": `${sftpQueueHeight}px` } as CSSProperties;
+    const renderSortButton = (key: SftpSortKey, label: string) => {
+      const isActive = sftpSort.key === key;
+      const Icon = isActive && sftpSort.direction === "desc" ? ArrowDown : ArrowUp;
+      return (
+        <button
+          className={`file-sort-button ${isActive ? "is-active" : ""}`}
+          type="button"
+          aria-label={text.tools.files.sortBy(label)}
+          onClick={() => changeSftpSort(key)}
+        >
+          <span>{label}</span>
+          {isActive ? <Icon size={13} aria-hidden="true" /> : null}
+        </button>
+      );
+    };
 
     return (
       <div className="tool-content tool-content--files">
@@ -2395,7 +2474,7 @@ export function App() {
               title={text.tools.files.rename}
               aria-label={text.tools.files.rename}
               disabled={!canUseFiles || !canMutate}
-              onClick={() => void renameSftpEntry()}
+              onClick={startRenamingSftpEntry}
             >
               <Pencil size={15} aria-hidden="true" />
             </button>
@@ -2448,9 +2527,27 @@ export function App() {
 	            </div>
 	          ) : null}
 	          <div className="file-row file-row--head">
-	            <span>{text.tools.files.name}</span>
-	            <span>{text.tools.files.size} / {text.tools.files.modified} / {text.tools.files.permissions}</span>
+	            {renderSortButton("name", text.tools.files.name)}
+	            {renderSortButton("modified", text.tools.files.modified)}
+	            {renderSortButton("size", text.tools.files.size)}
+	            {renderSortButton("permissions", text.tools.files.kind)}
 	          </div>
+	          {canUseFiles && sftpPath !== "/" && sftpParentPath ? (
+	            <button
+	              className="file-row file-row--parent"
+	              type="button"
+	              title={sftpParentPath}
+	              onClick={() => void loadSftpPath(sftpParentPath)}
+	            >
+	              <span className="file-name">
+	                <Folder size={15} aria-hidden="true" />
+	                <span>..</span>
+	              </span>
+	              <span className="file-cell file-cell--muted">-</span>
+	              <span className="file-cell file-cell--muted">-</span>
+	              <span className="file-cell">{text.tools.files.parentFolder}</span>
+	            </button>
+	          ) : null}
 	          {isCreatingSftpDirectory ? (
 	            <form className="file-row file-row--create" onSubmit={(event) => void createSftpDirectory(event)}>
 	              <span className="file-name">
@@ -2475,9 +2572,9 @@ export function App() {
 	                <button className="icon-button" type="button" title={text.hostEditor.cancel} aria-label={text.hostEditor.cancel} onClick={cancelCreatingSftpDirectory}>
 	                  <X size={14} aria-hidden="true" />
 	                </button>
-	              </span>
-	            </form>
-	          ) : null}
+              </span>
+            </form>
+          ) : null}
 	          {isSftpLoading ? (
 	            <div className="file-row file-row--state">
 	              <span>
@@ -2485,32 +2582,58 @@ export function App() {
                 {text.tools.files.loading}
               </span>
             </div>
-          ) : sftpEntries.length > 0 ? (
-            sftpEntries.map((entry) => (
-              <button
-                key={entry.path}
-                className={`file-row ${selectedSftpPath === entry.path ? "is-active" : ""} ${
-                  entry.directory && sftpDragTargetPath === entry.path ? "file-row--drop-target" : ""
-                }`}
-                type="button"
-                title={entry.path}
-                onClick={() => setSelectedSftpPath(entry.path)}
-                onDoubleClick={() => openSftpEntry(entry)}
-                onDragOver={entry.directory ? (event) => handleSftpDragOver(event, entry.path) : undefined}
-                onDragLeave={entry.directory ? handleSftpDragLeave : undefined}
-                onDrop={entry.directory ? (event) => void handleSftpDrop(event, entry.path) : undefined}
-	              >
-	                <span className="file-name">
-	                  {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
-	                  <span>{entry.name}</span>
-	                </span>
-	                <span className="file-meta">
-	                  <span>{entry.directory ? text.tools.files.folderType : formatBytes(entry.size)}</span>
-	                  <span>{formatRemoteTime(entry.modifiedAt)}</span>
-	                  <span>{entry.permissions}</span>
-	                </span>
-	              </button>
-	            ))
+          ) : sortedSftpEntries.length > 0 ? (
+            sortedSftpEntries.map((entry) =>
+              entry.path === renamingSftpPath ? (
+                <form key={entry.path} className="file-row file-row--create file-row--rename" onSubmit={(event) => void renameSftpEntry(event)}>
+                  <span className="file-name">
+                    {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
+                    <input
+                      ref={renameSftpInputRef}
+                      value={sftpRenameName}
+                      placeholder={text.tools.files.renamePrompt}
+                      onChange={(event) => setSftpRenameName(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenamingSftpEntry();
+                        }
+                      }}
+                    />
+                  </span>
+                  <span className="file-create-actions">
+                    <button className="icon-button" type="submit" title={text.tools.files.rename} aria-label={text.tools.files.rename}>
+                      <Check size={14} aria-hidden="true" />
+                    </button>
+                    <button className="icon-button" type="button" title={text.hostEditor.cancel} aria-label={text.hostEditor.cancel} onClick={cancelRenamingSftpEntry}>
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </span>
+                </form>
+              ) : (
+                <button
+                  key={entry.path}
+                  className={`file-row ${selectedSftpPath === entry.path ? "is-active" : ""} ${
+                    entry.directory && sftpDragTargetPath === entry.path ? "file-row--drop-target" : ""
+                  }`}
+                  type="button"
+                  title={entry.path}
+                  onClick={() => setSelectedSftpPath(entry.path)}
+                  onDoubleClick={() => openSftpEntry(entry)}
+                  onDragOver={entry.directory ? (event) => handleSftpDragOver(event, entry.path) : undefined}
+                  onDragLeave={entry.directory ? handleSftpDragLeave : undefined}
+                  onDrop={entry.directory ? (event) => void handleSftpDrop(event, entry.path) : undefined}
+                >
+                  <span className="file-name">
+                    {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
+                    <span>{entry.name}</span>
+                  </span>
+                  <span className="file-cell">{formatRemoteTime(entry.modifiedAt)}</span>
+                  <span className="file-cell">{entry.directory ? "-" : formatBytes(entry.size)}</span>
+                  <span className="file-cell">{entry.directory ? text.tools.files.folderType : entry.permissions}</span>
+                </button>
+              )
+            )
           ) : (
             <div className="file-row file-row--state">
               <span>{canUseFiles ? text.tools.files.empty : text.tools.files.noSession}</span>
@@ -3596,6 +3719,32 @@ function parseSftpQueueHeight(value: string | null): number {
 
 function clampSftpQueueHeight(value: number): number {
   return Math.min(MAX_SFTP_QUEUE_HEIGHT, Math.max(MIN_SFTP_QUEUE_HEIGHT, Math.round(value)));
+}
+
+function sortSftpEntries(entries: SftpFileEntry[], sort: SftpSortState): SftpFileEntry[] {
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return [...entries].sort((left, right) => {
+    const compared = compareSftpEntry(left, right, sort.key);
+    if (compared !== 0) {
+      return compared * direction;
+    }
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function compareSftpEntry(left: SftpFileEntry, right: SftpFileEntry, key: SftpSortKey): number {
+  if (key === "name") {
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+  }
+  if (key === "modified") {
+    return (left.modifiedTime || 0) - (right.modifiedTime || 0);
+  }
+  if (key === "size") {
+    return left.size - right.size;
+  }
+  const leftKind = left.directory ? "0" : `1-${left.permissions}`;
+  const rightKind = right.directory ? "0" : `1-${right.permissions}`;
+  return leftKind.localeCompare(rightKind, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function joinRemotePath(basePath: string, name: string): string {

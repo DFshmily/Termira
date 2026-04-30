@@ -1604,12 +1604,12 @@ h2 {
 
 .file-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 3px;
+  grid-template-columns: minmax(128px, 1fr) minmax(82px, 0.56fr) minmax(54px, 0.34fr) minmax(48px, 0.3fr);
+  align-items: center;
+  column-gap: var(--space-2);
   min-width: 0;
-  min-height: 46px;
-  padding: 6px var(--space-3);
+  min-height: 42px;
+  padding: 6px var(--space-2);
   border: 0;
   border-bottom: 1px solid var(--color-border-soft);
   color: var(--color-text-muted);
@@ -1635,6 +1635,15 @@ h2 {
   background: rgba(66, 197, 173, 0.1);
 }
 
+.file-row--parent {
+  color: var(--color-text);
+}
+
+.file-row--parent .file-name span {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .file-row--drop-target {
   color: var(--color-text);
   background: rgba(66, 197, 173, 0.16);
@@ -1646,8 +1655,7 @@ h2 {
   position: sticky;
   top: 0;
   z-index: 1;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
+  grid-template-columns: minmax(128px, 1fr) minmax(82px, 0.56fr) minmax(54px, 0.34fr) minmax(48px, 0.3fr);
   min-height: 36px;
   align-items: center;
   color: var(--color-text-subtle);
@@ -1655,6 +1663,41 @@ h2 {
   font-weight: 700;
   text-transform: uppercase;
   background: #171d23;
+}
+
+.file-sort-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 3px;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.file-sort-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-sort-button svg {
+  flex: 0 0 auto;
+  color: var(--color-accent-strong);
+}
+
+.file-sort-button:hover,
+.file-sort-button.is-active {
+  color: var(--color-text);
 }
 
 .file-drop-indicator {
@@ -1695,6 +1738,19 @@ h2 {
   white-space: nowrap;
 }
 
+.file-cell {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-cell--muted {
+  color: var(--color-text-subtle);
+}
+
 .file-name {
   display: inline-flex;
   align-items: center;
@@ -1727,6 +1783,10 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 44px;
   background: rgba(66, 197, 173, 0.06);
+}
+
+.file-row--rename {
+  background: rgba(66, 197, 173, 0.1);
 }
 
 .file-row--create .file-name {
