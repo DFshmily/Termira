@@ -11,6 +11,10 @@
 - 前端支持上级目录、刷新、上传、下载、新建目录、重命名、删除确认、传输取消和失败重试。
 - `packages/shared` 补充 SFTP IPC 和传输队列类型。
 - 后端会把 `~` 和 `~/...` 规范化为当前 SFTP 会话的 home 路径，兼容不在 SFTP 层展开 `~` 的服务器。
+- 终端顶部标签栏调整为接近 Termius 的深色胶囊式布局，保留主机库、SFTP、会话标签和新标签入口。
+- 终端标签支持右键菜单，提供复制、重命名、关闭等会话管理入口；暂未实现的新窗口复制、协作、水平拆分以禁用态展示。
+- 终端断开按钮改为立即更新本地状态，并分别关闭 terminal channel 和 SSH session，避免其中一步失败导致按钮看似无效。
+- SFTP 文件列表改为文件名优先的双行展示，长文件名不再被过早截断，大小、修改时间、权限合并到副信息行。
 
 ## 后端实现
 
@@ -53,8 +57,15 @@
 本地验证：
 
 - `npm run typecheck -w apps/desktop`：通过。
+- `npm run test -w apps/desktop`：通过。
 - `npm run typecheck -w packages/shared`：通过。
 - `mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml test`：通过，未配置真实服务器环境变量时 E2E 自动跳过。
+
+桌面端实机验收：
+
+- 使用开发模式启动 Termira，连接真实服务器后，右键终端标签可以打开类 Termius 菜单。
+- 点击终端工具栏方形断开按钮后，状态立即从已连接切换到未连接，SFTP 面板同步进入未连接态。
+- 打开 SFTP 面板后，远程 `/home/ubuntu` 下的 `.bash_history`、`.sudo_as_admin_successful` 等长名称能完整显示。
 
 真实服务器验证：
 

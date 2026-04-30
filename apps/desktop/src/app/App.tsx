@@ -43,7 +43,7 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -140,6 +140,12 @@ type TerminalSession = {
   sessionId?: string;
   channelId?: string;
   error?: string;
+};
+
+type TerminalTabMenuState = {
+  tabId: string;
+  x: number;
+  y: number;
 };
 
 type SshSessionView = {
@@ -687,6 +693,7 @@ export function App() {
   const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
   const [terminalTabs, setTerminalTabs] = useState<TerminalSession[]>([]);
+  const [terminalTabMenu, setTerminalTabMenu] = useState<TerminalTabMenuState | null>(null);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [hostProfiles, setHostProfiles] = useState<BackendHostProfile[]>([]);
   const [isHostLoading, setIsHostLoading] = useState(true);
@@ -862,6 +869,30 @@ export function App() {
   useEffect(() => {
     terminalTabsRef.current = terminalTabs;
   }, [terminalTabs]);
+
+  useEffect(() => {
+    if (!terminalTabMenu) {
+      return undefined;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".terminal-tab-menu") || target?.closest(".terminal-tab")) {
+        return;
+      }
+      setTerminalTabMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTerminalTabMenu(null);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [terminalTabMenu]);
 
   useEffect(() => {
     sftpContextRef.current = {
@@ -1310,6 +1341,9 @@ export function App() {
   }
 
   function closeTerminalTab(tabId: string) {
+    if (terminalTabMenu?.tabId === tabId) {
+      setTerminalTabMenu(null);
+    }
     const tab = terminalTabs.find((item) => item.id === tabId);
     if (tab?.sessionId && tab.channelId) {
       void window.termira.invoke("terminal.close", { sessionId: tab.sessionId, channelId: tab.channelId }).catch(() => undefined);
@@ -1328,6 +1362,76 @@ export function App() {
     if (nextTabs.length === 0) {
       setActiveView("hosts");
     }
+  }
+
+  function openTerminalTabMenu(tabId: string, event: ReactMouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (tabId === "tab-preview") {
+      return;
+    }
+    setActiveTerminalTabId(tabId);
+    setTerminalTabMenu({
+      tabId,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 292)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 320))
+    });
+  }
+
+  function duplicateTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+    if (tab.kind === "hostPicker") {
+      openNewTerminalTab();
+      return;
+    }
+    const host = hosts.find((item) => item.id === tab.hostId);
+    if (host) {
+      void openTerminalForHost(host);
+      return;
+    }
+
+    const nextTab: TerminalSession = {
+      ...tab,
+      id: createTerminalTabId(),
+      status: "disconnected",
+      sessionId: undefined,
+      channelId: undefined,
+      error: undefined
+    };
+    const nextTabs = [...terminalTabsRef.current, nextTab];
+    terminalTabsRef.current = nextTabs;
+    setTerminalTabs(nextTabs);
+    setActiveTerminalTabId(nextTab.id);
+    setActiveView("terminal");
+  }
+
+  function renameTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+    const currentTitle = translate(tab.title, language);
+    const nextTitle = window.prompt(text.terminal.tabMenu.renamePrompt, currentTitle)?.trim();
+    if (!nextTitle || nextTitle === currentTitle) {
+      return;
+    }
+    setTerminalTabs((current) => {
+      const updated = current.map((item) =>
+        item.id === tabId
+          ? {
+              ...item,
+              title: toLocalized(nextTitle)
+            }
+          : item
+      );
+      terminalTabsRef.current = updated;
+      return updated;
+    });
   }
 
   async function openTerminalForHost(
@@ -1482,32 +1586,50 @@ export function App() {
   }
 
   async function disconnectActiveTerminal() {
-    if (!activeTerminal.sessionId) {
+    const tab = terminalTabsRef.current.find((item) => item.id === activeTerminal.id);
+    if (!tab?.sessionId) {
       return;
     }
+    const sessionId = tab.sessionId;
+    const channelId = tab.channelId;
     setTerminalError(null);
     setTerminalTabs((current) => {
       const updated: TerminalSession[] = current.map((tab) =>
         tab.id === activeTerminal.id
           ? {
               ...tab,
-              status: "disconnected"
+              status: "disconnected",
+              sessionId: undefined,
+              channelId: undefined
             }
           : tab
       );
       terminalTabsRef.current = updated;
       return updated;
     });
-    try {
-      if (activeTerminal.channelId) {
-        await window.termira.invoke("terminal.close", {
-          sessionId: activeTerminal.sessionId,
-          channelId: activeTerminal.channelId
+    if (sftpSessionId === sessionId) {
+      setSftpSessionId("");
+      setSftpEntries([]);
+      setSelectedSftpPath("");
+    }
+
+    let firstError: unknown;
+    if (channelId) {
+      await window.termira
+        .invoke("terminal.close", {
+          sessionId,
+          channelId
+        })
+        .catch((error) => {
+          firstError = firstError ?? error;
         });
-      }
-      await window.termira.invoke("ssh.disconnect", { sessionId: activeTerminal.sessionId });
-    } catch (error) {
-      setTerminalError(errorMessage(error));
+    }
+    await window.termira.invoke("ssh.disconnect", { sessionId }).catch((error) => {
+      firstError = firstError ?? error;
+    });
+
+    if (firstError) {
+      setTerminalError(errorMessage(firstError));
     }
   }
 
@@ -1963,9 +2085,7 @@ export function App() {
         <div className="file-table" aria-label={text.tools.files.list}>
           <div className="file-row file-row--head">
             <span>{text.tools.files.name}</span>
-            <span>{text.tools.files.size}</span>
-            <span>{text.tools.files.modified}</span>
-            <span>{text.tools.files.permissions}</span>
+            <span>{text.tools.files.size} / {text.tools.files.modified} / {text.tools.files.permissions}</span>
           </div>
           {isSftpLoading ? (
             <div className="file-row file-row--state">
@@ -1988,9 +2108,11 @@ export function App() {
                   {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
                   <span>{entry.name}</span>
                 </span>
-                <span>{entry.directory ? "-" : formatBytes(entry.size)}</span>
-                <span>{formatRemoteTime(entry.modifiedAt)}</span>
-                <span>{entry.permissions}</span>
+                <span className="file-meta">
+                  <span>{entry.directory ? text.tools.files.folderType : formatBytes(entry.size)}</span>
+                  <span>{formatRemoteTime(entry.modifiedAt)}</span>
+                  <span>{entry.permissions}</span>
+                </span>
               </button>
             ))
           ) : (
@@ -2287,6 +2409,60 @@ export function App() {
     );
   }
 
+  function renderTerminalTabMenu() {
+    if (!terminalTabMenu) {
+      return null;
+    }
+    const tab = terminalTabs.find((item) => item.id === terminalTabMenu.tabId);
+    if (!tab) {
+      return null;
+    }
+
+    return (
+      <>
+        <div
+          className="terminal-tab-menu-backdrop"
+          role="presentation"
+          onMouseDown={() => setTerminalTabMenu(null)}
+          onClick={() => setTerminalTabMenu(null)}
+        />
+        <div
+          className="terminal-tab-menu"
+          role="menu"
+          aria-label={translate(tab.title, language)}
+          style={{ left: terminalTabMenu.x, top: terminalTabMenu.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => duplicateTerminalTab(tab.id)}>
+            <RefreshCw size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.duplicate}</span>
+          </button>
+          <button type="button" role="menuitem" disabled>
+            <Maximize2 size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.duplicateWindow}</span>
+          </button>
+          <button type="button" role="menuitem" disabled>
+            <Network size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.multiplayer}</span>
+          </button>
+          <span className="terminal-tab-menu-separator" aria-hidden="true" />
+          <button type="button" role="menuitem" onClick={() => renameTerminalTab(tab.id)}>
+            <Pencil size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.rename}</span>
+          </button>
+          <button type="button" role="menuitem" disabled>
+            <Minus size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.splitHorizontal}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => closeTerminalTab(tab.id)}>
+            <X size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.close}</span>
+          </button>
+        </div>
+      </>
+    );
+  }
+
   return (
       <main
       className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
@@ -2349,13 +2525,43 @@ export function App() {
               <div className="terminal-column">
                 <section className="terminal-stage" aria-label={text.terminal.title}>
                   <div className="terminal-tabs">
+                    <button
+                      className="workspace-tab"
+                      type="button"
+                      title={text.navigation.hosts}
+                      onClick={() => setActiveView("hosts")}
+                    >
+                      <Server size={14} aria-hidden="true" />
+                      <span>{text.navigation.hosts}</span>
+                    </button>
+                    <button
+                      className={`workspace-tab ${activeTool === "files" && !isToolDockCollapsed ? "is-active" : ""}`}
+                      type="button"
+                      title="SFTP"
+                      onClick={() => {
+                        setActiveTool("files");
+                        setIsToolDockCollapsed(false);
+                      }}
+                    >
+                      <FolderOpen size={14} aria-hidden="true" />
+                      <span>SFTP</span>
+                    </button>
                     {visibleTerminalTabs.map((tab) => (
                       <div
                         key={tab.id}
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
+                        onContextMenu={(event) => openTerminalTabMenu(tab.id, event)}
                       >
-	                        <button className="terminal-tab-main" type="button" title={translate(tab.title, language)} onClick={() => setActiveTerminalTabId(tab.id)}>
+	                        <button
+                            className="terminal-tab-main"
+                            type="button"
+                            title={translate(tab.title, language)}
+                            onClick={() => {
+                              setTerminalTabMenu(null);
+                              setActiveTerminalTabId(tab.id);
+                            }}
+                          >
 	                          {tab.kind === "hostPicker" ? <Plus size={14} aria-hidden="true" /> : <Terminal size={14} aria-hidden="true" />}
 	                          <span>{translate(tab.title, language)}</span>
 	                        </button>
@@ -2382,6 +2588,7 @@ export function App() {
 	                      onClick={openNewTerminalTab}
 	                    >
 	                      <Plus size={14} aria-hidden="true" />
+                        <span>{text.terminal.newTabTitle}</span>
 	                    </button>
 	                  </div>
 	                  <div className="terminal-content-stack">
@@ -2600,11 +2807,12 @@ export function App() {
                 </div>
               </div>
             </section>
-          </section>
-        )}
-      </section>
-      {isHostEditorOpen ? (
-        <div className="modal-backdrop" role="presentation">
+	          </section>
+	        )}
+	      </section>
+      {renderTerminalTabMenu()}
+	      {isHostEditorOpen ? (
+	        <div className="modal-backdrop" role="presentation">
           <form className="host-editor" onSubmit={saveHost}>
             <div className="modal-heading">
               <div>

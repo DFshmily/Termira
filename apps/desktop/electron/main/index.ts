@@ -16,6 +16,8 @@ function createWindow(): void {
     title: "Termira",
     backgroundColor: "#101112",
     show: false,
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
