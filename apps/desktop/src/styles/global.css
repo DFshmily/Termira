@@ -1604,7 +1604,7 @@ h2 {
 
 .file-row {
   display: grid;
-  grid-template-columns: minmax(128px, 1fr) minmax(82px, 0.56fr) minmax(54px, 0.34fr) minmax(48px, 0.3fr);
+  grid-template-columns: minmax(116px, 1fr) minmax(112px, 0.62fr) minmax(54px, 0.32fr) minmax(48px, 0.28fr);
   align-items: center;
   column-gap: var(--space-2);
   min-width: 0;
@@ -1655,7 +1655,7 @@ h2 {
   position: sticky;
   top: 0;
   z-index: 1;
-  grid-template-columns: minmax(128px, 1fr) minmax(82px, 0.56fr) minmax(54px, 0.34fr) minmax(48px, 0.3fr);
+  grid-template-columns: minmax(116px, 1fr) minmax(112px, 0.62fr) minmax(54px, 0.32fr) minmax(48px, 0.28fr);
   min-height: 36px;
   align-items: center;
   color: var(--color-text-subtle);
