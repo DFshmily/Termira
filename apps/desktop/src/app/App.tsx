@@ -20,6 +20,7 @@ import {
   Loader2,
   Lock,
   Maximize2,
+  Minimize2,
   Minus,
   Network,
   PanelRightClose,
@@ -689,6 +690,7 @@ export function App() {
     parseTerminalFontSize(window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY))
   );
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
+  const [isTerminalMaximized, setIsTerminalMaximized] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
@@ -1105,7 +1107,7 @@ export function App() {
     resizeActiveTerminal();
 
     return () => window.removeEventListener("resize", resizeActiveTerminal);
-  }, [activeTerminal.id, fitAndResizeTerminal, isToolDockCollapsed]);
+  }, [activeTerminal.id, fitAndResizeTerminal, isTerminalMaximized, isToolDockCollapsed]);
 
   useEffect(() => {
     if (activeTerminal.id === "tab-preview") {
@@ -2222,9 +2224,11 @@ export function App() {
 	        <section className="subpanel subpanel--queue" aria-label={text.tools.files.queue}>
           <div className="subpanel-heading">
             <span>{text.tools.files.queue}</span>
-            <strong>{text.tools.files.queueCount(sftpTransfers.length)}</strong>
+            <strong className={`queue-count ${sftpTransfers.length === 0 ? "queue-count--idle" : ""}`}>
+              {sftpTransfers.length > 0 ? text.tools.files.queueCount(sftpTransfers.length) : text.tools.files.queueIdle}
+            </strong>
           </div>
-          <div className="queue-list">
+          <div className={`queue-list ${sftpTransfers.length === 0 ? "queue-list--empty" : ""}`}>
             {sftpTransfers.length > 0 ? (
               sftpTransfers.map((transfer) => (
                 <article
@@ -2277,8 +2281,7 @@ export function App() {
                 </article>
               ))
             ) : (
-              <div className="inline-state">
-                <Upload size={15} aria-hidden="true" />
+              <div className="queue-empty-state">
                 <span>{text.tools.files.queueEmpty}</span>
               </div>
             )}
@@ -2630,34 +2633,13 @@ export function App() {
 	            <section
 	              className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""} ${
 	                isHostPickerActive ? "is-host-picker" : ""
-	              }`}
+	              } ${isTerminalMaximized ? "is-terminal-maximized" : ""}`}
 	            >
               <div className="terminal-column">
-                <section className="terminal-stage" aria-label={text.terminal.title}>
-                  <div className="terminal-tabs">
-                    <button
-                      className="workspace-tab"
-                      type="button"
-                      title={text.navigation.hosts}
-                      onClick={() => setActiveView("hosts")}
-                    >
-                      <Server size={14} aria-hidden="true" />
-                      <span>{text.navigation.hosts}</span>
-                    </button>
-                    <button
-                      className={`workspace-tab ${activeTool === "files" && !isToolDockCollapsed ? "is-active" : ""}`}
-                      type="button"
-                      title="SFTP"
-                      onClick={() => {
-                        setActiveTool("files");
-                        setIsToolDockCollapsed(false);
-                      }}
-                    >
-                      <FolderOpen size={14} aria-hidden="true" />
-                      <span>SFTP</span>
-                    </button>
-                    {visibleTerminalTabs.map((tab) => (
-                      <div
+	                <section className="terminal-stage" aria-label={text.terminal.title}>
+	                  <div className="terminal-tabs">
+	                    {visibleTerminalTabs.map((tab) => (
+	                      <div
                         key={tab.id}
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
@@ -2732,8 +2714,13 @@ export function App() {
 	                        >
 	                          {shouldCloseActiveTerminalTab ? <X size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />}
 	                        </button>
-                        <button type="button" title={text.actions.maximize} aria-label={text.actions.maximize}>
-                          <Maximize2 size={14} aria-hidden="true" />
+                        <button
+                          type="button"
+                          title={isTerminalMaximized ? text.actions.restore : text.actions.maximize}
+                          aria-label={isTerminalMaximized ? text.actions.restore : text.actions.maximize}
+                          onClick={() => setIsTerminalMaximized((current) => !current)}
+                        >
+                          {isTerminalMaximized ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
                         </button>
                       </div>
                     </div>
@@ -2765,7 +2752,7 @@ export function App() {
 	                </section>
               </div>
 
-	              {!isHostPickerActive ? (
+	              {!isHostPickerActive && !isTerminalMaximized ? (
 	              <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
                 {isToolDockCollapsed ? (
                   renderToolSideRail()

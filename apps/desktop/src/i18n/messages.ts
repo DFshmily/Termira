@@ -106,7 +106,8 @@ export const messages = {
       start: "启动",
       refresh: "刷新",
       copy: "复制",
-      maximize: "最大化"
+      maximize: "最大化",
+      restore: "还原"
     },
     tools: {
       title: "工具区",
@@ -149,7 +150,8 @@ export const messages = {
         empty: "目录为空",
         noSession: "连接终端后可使用 SFTP。",
         queue: "传输队列",
-        queueEmpty: "暂无传输任务",
+        queueIdle: "空闲",
+        queueEmpty: "暂无传输",
         queueCount: (count: number) => `${count} 个任务`,
         mkdirPrompt: "目录名称",
         renamePrompt: "新名称",
@@ -353,7 +355,8 @@ export const messages = {
       start: "Start",
       refresh: "Refresh",
       copy: "Copy",
-      maximize: "Maximize"
+      maximize: "Maximize",
+      restore: "Restore"
     },
     tools: {
       title: "Tool area",
@@ -396,7 +399,8 @@ export const messages = {
         empty: "Directory is empty",
         noSession: "Connect a terminal to use SFTP.",
         queue: "Transfer queue",
-        queueEmpty: "No transfer tasks",
+        queueIdle: "Idle",
+        queueEmpty: "No transfers",
         queueCount: (count: number) => `${count} tasks`,
         mkdirPrompt: "Folder name",
         renamePrompt: "New name",
