@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 .m2/
+.electron-builder-cache/
 dist/
 dist-electron/
 coverage/
@@ -8,6 +9,8 @@ coverage/
 
 apps/backend-java/target/
 apps/desktop/.vite/
+apps/desktop/release/
+apps/desktop/build/icon.iconset/
 
 .idea/
 .vscode/

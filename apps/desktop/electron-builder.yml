@@ -1,0 +1,28 @@
+appId: com.termira.desktop
+productName: Termira
+copyright: Copyright © 2026 Termira
+artifactName: ${productName}-${version}-${arch}.${ext}
+electronVersion: 41.3.0
+electronDist: ../../node_modules/electron/dist
+icon: build/icon.icns
+
+directories:
+  output: release
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: ../../apps/backend-java/target/termira-backend.jar
+    to: backend-java/termira-backend.jar
+
+asar: true
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  identity: null
+  target:
+    - zip

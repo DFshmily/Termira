@@ -11,6 +11,8 @@
     "dev": "npm run dev -w apps/desktop",
     "build": "npm run build -w apps/desktop && npm run build -w packages/shared && npm run build:java",
     "build:java": "mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml clean package",
+    "pack:mac": "npm run build && npm run pack:mac -w apps/desktop",
+    "dist:mac": "npm run build && npm run dist:mac -w apps/desktop",
     "test": "npm run test -w apps/desktop && npm run test -w packages/shared && mvn -Dmaven.repo.local=.m2/repository -f apps/backend-java/pom.xml test",
     "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w packages/shared"
   },

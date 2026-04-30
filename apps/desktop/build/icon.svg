@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Termira app icon</title>
+  <desc id="desc">A dark blue rounded-square icon with a white cloud terminal prompt.</desc>
+  <defs>
+    <linearGradient id="plate" x1="250" y1="170" x2="780" y2="850" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17245d"/>
+      <stop offset="0.48" stop-color="#0c1739"/>
+      <stop offset="1" stop-color="#050914"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="36%" cy="25%" r="76%">
+      <stop offset="0" stop-color="#8f79ff" stop-opacity="0.45"/>
+      <stop offset="0.35" stop-color="#446dff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#0a1027" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cloud" x1="324" y1="310" x2="710" y2="650" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9e7ff"/>
+    </linearGradient>
+    <filter id="drop" x="132" y="118" width="760" height="792" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="30" stdDeviation="34" flood-color="#02040a" flood-opacity="0.42"/>
+      <feDropShadow dx="0" dy="-4" stdDeviation="10" flood-color="#607cff" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#drop)">
+    <rect x="196" y="164" width="632" height="696" rx="154" fill="url(#plate)"/>
+    <rect x="196" y="164" width="632" height="696" rx="154" fill="url(#aura)"/>
+    <rect x="210" y="178" width="604" height="668" rx="140" fill="none" stroke="#3956b8" stroke-opacity="0.55" stroke-width="18"/>
+    <path d="M667 616H386C326 616 278 569 278 511C278 460 314 418 362 407C387 346 446 308 512 308C590 308 654 363 670 436C715 446 748 484 748 529C748 577 713 616 667 616Z" fill="none" stroke="url(#cloud)" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M417 468L475 512L417 556" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M520 558H604" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round"/>
+  </g>
+</svg>

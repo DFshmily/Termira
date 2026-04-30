@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { SidecarManager } from "./sidecar";
 
+app.setName("Termira");
+
 const sidecar = new SidecarManager();
 
 let mainWindow: BrowserWindow | null = null;

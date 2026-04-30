@@ -72,6 +72,51 @@ class SshSessionManagerE2ETest {
     }
 
     @Test
+    void connectsWithPrivateKeyAgainstEnvHost() throws Exception {
+        String host = System.getenv("TERMIRA_E2E_SSH_HOST");
+        String username = System.getenv("TERMIRA_E2E_SSH_USER");
+        String privateKeyPath = System.getenv("TERMIRA_E2E_SSH_PRIVATE_KEY_PATH");
+        String passphrase = System.getenv("TERMIRA_E2E_SSH_PRIVATE_KEY_PASSPHRASE");
+        assumeTrue(hasText(host) && hasText(username) && hasText(privateKeyPath), "TERMIRA_E2E_SSH_PRIVATE_KEY_PATH is required.");
+
+        ProfileStore profileStore = new ProfileStore(tempDir.resolve("private-key-profiles.db"));
+        VaultManager vaultManager = new VaultManager(tempDir.resolve("private-key-vault.dat"), tempDir.resolve("private-key-vault.local.key"));
+        SshSessionManager manager = new SshSessionManager(profileStore, vaultManager, event -> {
+        });
+
+        try {
+            SshSessionView session = manager.connect(new SshConnectRequest(
+                    null,
+                    "ssh_private_key_e2e",
+                    host,
+                    22,
+                    username,
+                    "privateKey",
+                    null,
+                    privateKeyPath,
+                    null,
+                    passphrase,
+                    20_000
+            ));
+            assertThat(session.status()).isEqualTo(SshStatus.CONNECTED);
+
+            RemoteCommandResult result = manager.exec(
+                    session.sessionId(),
+                    "hostname",
+                    10_000,
+                    ErrorCode.PROCESS_NOT_CONNECTED,
+                    ErrorCode.PROCESS_OPERATION_FAILED
+            );
+            assertThat(result.exitStatus()).isZero();
+            assertThat(result.stdout().trim()).isNotEmpty();
+
+            manager.disconnect(new SshDisconnectRequest(session.sessionId()));
+        } finally {
+            manager.close();
+        }
+    }
+
+    @Test
     void mapsInvalidPasswordToAuthFailedAgainstEnvHost() {
         String host = System.getenv("TERMIRA_E2E_SSH_HOST");
         String username = System.getenv("TERMIRA_E2E_SSH_USER");

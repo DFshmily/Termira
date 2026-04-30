@@ -102,6 +102,8 @@ public final class SshSessionManager implements AutoCloseable {
             throw error;
         } catch (Exception error) {
             AppError mapped = mapConnectError(error);
+            LOGGER.warn("ssh.connect sessionId={} profileId={} failure cause={} message={}",
+                    spec.sessionId(), spec.profileId(), error.getClass().getSimpleName(), error.getMessage());
             markFailed(handle, mapped.code(), mapped.getMessage());
             disconnectQuietly(handle);
             sessions.remove(spec.sessionId());
@@ -367,7 +369,7 @@ public final class SshSessionManager implements AutoCloseable {
             if (!Files.exists(keyPath)) {
                 throw new UserAuthException("Private key file not found.");
             }
-            keyProvider = client.loadKeys(keyPath.toString(), spec.passphrase());
+            keyProvider = client.loadKeys(keyPath.toString(), passwordFinder(spec.passphrase()));
         } else {
             throw new UserAuthException("Private key credential is required.");
         }

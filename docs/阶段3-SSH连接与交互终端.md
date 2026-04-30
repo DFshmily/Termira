@@ -106,8 +106,8 @@
 
 真实服务器验证：
 
-- 服务器：`119.91.123.116`
-- 用户：`ubuntu`
+- 服务器：通过 `TERMIRA_E2E_SSH_HOST` 注入，不在文档中记录真实地址。
+- 用户：通过 `TERMIRA_E2E_SSH_USER` 注入，不在文档中记录真实账号。
 - 验证项：密码登录、打开交互 shell、执行 `whoami`/`pwd`/`ls` 相关命令、接收输出、PTY resize、关闭 channel、断开 session。
 - 结果：通过。
 - 认证失败验证：使用错误密码连接同一服务器，返回 `SSH_AUTH_FAILED`，通过。
