@@ -44,7 +44,7 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -711,9 +711,11 @@ export function App() {
   const [isVaultBusy, setIsVaultBusy] = useState(false);
   const [sftpSessionId, setSftpSessionId] = useState("");
   const [sftpPath, setSftpPath] = useState("~");
+  const [sftpPathInput, setSftpPathInput] = useState("~");
   const [sftpParentPath, setSftpParentPath] = useState("");
   const [sftpEntries, setSftpEntries] = useState<SftpFileEntry[]>([]);
   const [selectedSftpPath, setSelectedSftpPath] = useState("");
+  const [sftpDragTargetPath, setSftpDragTargetPath] = useState<string | null>(null);
   const [isCreatingSftpDirectory, setIsCreatingSftpDirectory] = useState(false);
   const [newSftpDirectoryName, setNewSftpDirectoryName] = useState("");
   const [isSftpLoading, setIsSftpLoading] = useState(false);
@@ -725,6 +727,7 @@ export function App() {
   const openingHostTabIdsRef = useRef<Map<string, string>>(new Map());
   const xtermEntriesRef = useRef<Map<string, XTermEntry>>(new Map());
   const pendingTerminalOutputRef = useRef<Map<string, string[]>>(new Map());
+  const terminalInputBuffersRef = useRef<Map<string, string>>(new Map());
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const newSftpDirectoryInputRef = useRef<HTMLInputElement | null>(null);
@@ -808,6 +811,50 @@ export function App() {
     pendingTerminalOutputRef.current.delete(tabId);
   }, []);
 
+  const updateTerminalCwd = useCallback((tabId: string, cwd: string) => {
+    setTerminalTabs((current) => {
+      const updated = current.map((tab) => (tab.id === tabId ? { ...tab, cwd } : tab));
+      terminalTabsRef.current = updated;
+      return updated;
+    });
+  }, []);
+
+  const recordTerminalInput = useCallback(
+    (tabId: string, data: string) => {
+      let buffer = terminalInputBuffersRef.current.get(tabId) ?? "";
+
+      for (const char of data) {
+        if (char === "\r" || char === "\n") {
+          const command = buffer.trim();
+          buffer = "";
+          const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+          const nextCwd = tab ? inferCwdFromShellCommand(command, tab.cwd) : null;
+          if (nextCwd && tab && nextCwd !== tab.cwd) {
+            updateTerminalCwd(tabId, nextCwd);
+          }
+          continue;
+        }
+
+        if (char === "\u007f" || char === "\b") {
+          buffer = buffer.slice(0, -1);
+          continue;
+        }
+
+        if (char === "\u0003" || char === "\u0015") {
+          buffer = "";
+          continue;
+        }
+
+        if (char >= " " && char !== "\u007f") {
+          buffer += char;
+        }
+      }
+
+      terminalInputBuffersRef.current.set(tabId, buffer.slice(-512));
+    },
+    [updateTerminalCwd]
+  );
+
   const mountTerminal = useCallback(
     (tabId: string, node: HTMLDivElement | null) => {
       if (!node || xtermEntriesRef.current.has(tabId)) {
@@ -828,6 +875,7 @@ export function App() {
       terminal.loadAddon(fitAddon);
 
       const inputDisposable = terminal.onData((data) => {
+        recordTerminalInput(tabId, data);
         const tab = terminalTabsRef.current.find((item) => item.id === tabId);
         if (!tab?.sessionId || !tab.channelId || tab.status !== "connected") {
           return;
@@ -849,7 +897,7 @@ export function App() {
       }
       pendingTerminalOutputRef.current.delete(tabId);
     },
-    [fitAndResizeTerminal, terminalFont.stack, terminalFontSize, terminalTheme.palette]
+    [fitAndResizeTerminal, recordTerminalInput, terminalFont.stack, terminalFontSize, terminalTheme.palette]
   );
 
   useEffect(() => {
@@ -1015,6 +1063,7 @@ export function App() {
       }
       setSftpSessionId(result.sessionId);
       setSftpPath(result.path);
+      setSftpPathInput(result.path);
       setSftpParentPath(typeof result.parentPath === "string" ? result.parentPath : "");
       setSftpEntries(result.entries as SftpFileEntry[]);
     };
@@ -1718,9 +1767,11 @@ export function App() {
       });
       setSftpSessionId(result.sessionId);
       setSftpPath(result.path);
+      setSftpPathInput(result.path);
       setSftpParentPath(result.parentPath);
       setSftpEntries(result.entries);
       setSelectedSftpPath("");
+      setSftpDragTargetPath(null);
       setIsCreatingSftpDirectory(false);
       setNewSftpDirectoryName("");
     } catch (error) {
@@ -1742,6 +1793,15 @@ export function App() {
     if (entry.directory) {
       void loadSftpPath(entry.path);
     }
+  }
+
+  function submitSftpPathInput() {
+    const nextPath = sftpPathInput.trim();
+    if (!nextPath || nextPath === sftpPath) {
+      setSftpPathInput(sftpPath);
+      return;
+    }
+    void loadSftpPath(nextPath);
   }
 
   function startCreatingSftpDirectory() {
@@ -1825,7 +1885,7 @@ export function App() {
     }
   }
 
-  async function handleUploadSelection(files: FileList | null) {
+  async function uploadSftpFiles(files: FileList | File[] | null, targetDirectory = sftpPath) {
     if (!files || files.length === 0 || !activeTerminal.sessionId) {
       return;
     }
@@ -1840,16 +1900,52 @@ export function App() {
         const transfer = await window.termira.invoke<SftpTransfer>("sftp.upload", {
           sessionId: activeTerminal.sessionId,
           localPath,
-          remotePath: joinRemotePath(sftpPath, file.name)
+          remotePath: joinRemotePath(targetDirectory, file.name)
         });
         upsertSftpTransfer(transfer);
       } catch (error) {
         setSftpError(errorMessage(error));
       }
     }
+  }
+
+  async function handleUploadSelection(files: FileList | null) {
+    await uploadSftpFiles(files, sftpPath);
     if (uploadInputRef.current) {
       uploadInputRef.current.value = "";
     }
+  }
+
+  function canAcceptSftpDrop(event: ReactDragEvent<HTMLElement>): boolean {
+    return Boolean(isSftpAvailable && activeTerminal.sessionId && Array.from(event.dataTransfer.types).includes("Files"));
+  }
+
+  function handleSftpDragOver(event: ReactDragEvent<HTMLElement>, targetDirectory: string) {
+    if (!canAcceptSftpDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setSftpDragTargetPath(targetDirectory);
+  }
+
+  function handleSftpDragLeave(event: ReactDragEvent<HTMLElement>) {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setSftpDragTargetPath(null);
+  }
+
+  async function handleSftpDrop(event: ReactDragEvent<HTMLElement>, targetDirectory: string) {
+    if (!canAcceptSftpDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setSftpDragTargetPath(null);
+    await uploadSftpFiles(event.dataTransfer.files, targetDirectory);
   }
 
   async function downloadSftpEntry() {
@@ -2055,7 +2151,26 @@ export function App() {
         <div className="sftp-browser-head">
           <div className="tool-path">
             <FolderOpen size={15} aria-hidden="true" />
-            <span title={sftpPath}>{canUseFiles ? sftpPath : text.tools.files.noSession}</span>
+            <input
+              value={canUseFiles ? sftpPathInput : text.tools.files.noSession}
+              title={canUseFiles ? sftpPath : text.tools.files.noSession}
+              aria-label={text.tools.files.pathInput}
+              disabled={!canUseFiles}
+              spellCheck={false}
+              onChange={(event) => setSftpPathInput(event.currentTarget.value)}
+              onBlur={() => setSftpPathInput(sftpPath)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitSftpPathInput();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSftpPathInput(sftpPath);
+                  event.currentTarget.blur();
+                }
+              }}
+            />
           </div>
 
           <div className="icon-toolbar" aria-label={text.tools.files.toolbar}>
@@ -2078,6 +2193,16 @@ export function App() {
               onClick={() => void loadSftpPath(sftpPath)}
             >
               {isSftpLoading ? <Loader2 className="spin-icon" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.followTerminalCwd}
+              aria-label={text.tools.files.followTerminalCwd}
+              disabled={!canUseFiles || !activeTerminal.cwd}
+              onClick={() => void loadSftpPath(activeTerminal.cwd || "~")}
+            >
+              <Terminal size={15} aria-hidden="true" />
             </button>
             <button
               className="icon-button"
@@ -2154,7 +2279,19 @@ export function App() {
           ) : null}
         </div>
 
-	        <div className="file-table" aria-label={text.tools.files.list}>
+	        <div
+	          className={`file-table ${sftpDragTargetPath ? "is-dragging" : ""} ${sftpDragTargetPath === sftpPath ? "is-drop-target" : ""}`}
+	          aria-label={text.tools.files.list}
+	          onDragOver={(event) => handleSftpDragOver(event, sftpPath)}
+	          onDragLeave={handleSftpDragLeave}
+	          onDrop={(event) => void handleSftpDrop(event, sftpPath)}
+	        >
+	          {sftpDragTargetPath ? (
+	            <div className="file-drop-indicator" aria-live="polite">
+	              <Upload size={15} aria-hidden="true" />
+	              <span>{sftpDragTargetPath === sftpPath ? text.tools.files.dropUploadHere : text.tools.files.dropUploadIntoFolder}</span>
+	            </div>
+	          ) : null}
 	          <div className="file-row file-row--head">
 	            <span>{text.tools.files.name}</span>
 	            <span>{text.tools.files.size} / {text.tools.files.modified} / {text.tools.files.permissions}</span>
@@ -2197,11 +2334,16 @@ export function App() {
             sftpEntries.map((entry) => (
               <button
                 key={entry.path}
-                className={`file-row ${selectedSftpPath === entry.path ? "is-active" : ""}`}
+                className={`file-row ${selectedSftpPath === entry.path ? "is-active" : ""} ${
+                  entry.directory && sftpDragTargetPath === entry.path ? "file-row--drop-target" : ""
+                }`}
                 type="button"
                 title={entry.path}
                 onClick={() => setSelectedSftpPath(entry.path)}
                 onDoubleClick={() => openSftpEntry(entry)}
+                onDragOver={entry.directory ? (event) => handleSftpDragOver(event, entry.path) : undefined}
+                onDragLeave={entry.directory ? handleSftpDragLeave : undefined}
+                onDrop={entry.directory ? (event) => void handleSftpDrop(event, entry.path) : undefined}
 	              >
 	                <span className="file-name">
 	                  {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
@@ -3256,6 +3398,69 @@ function joinRemotePath(basePath: string, name: string): string {
     return `/${trimmedName}`;
   }
   return `${basePath.replace(/\/+$/, "")}/${trimmedName}`;
+}
+
+function inferCwdFromShellCommand(command: string, currentCwd: string): string | null {
+  const match = command.match(/^cd(?:\s+(.+))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const target = normalizeCdTarget(match[1]);
+  if (!target || target === "-") {
+    return null;
+  }
+  if (target === "~") {
+    return "~";
+  }
+  if (target.startsWith("/")) {
+    return normalizeRemoteDirectory(target);
+  }
+  if (target.startsWith("~/")) {
+    return normalizeRemoteDirectory(target);
+  }
+  return normalizeRemoteDirectory(joinRemotePath(currentCwd || "~", target));
+}
+
+function normalizeCdTarget(value?: string): string | null {
+  if (!value || !value.trim()) {
+    return "~";
+  }
+
+  const target = value.trim();
+  if (/[;&|<>`]/.test(target) || target.includes("$(")) {
+    return null;
+  }
+  if ((target.startsWith('"') && target.endsWith('"')) || (target.startsWith("'") && target.endsWith("'"))) {
+    return target.slice(1, -1).trim() || null;
+  }
+  if (/\s/.test(target)) {
+    return null;
+  }
+  return target;
+}
+
+function normalizeRemoteDirectory(path: string): string {
+  const isHomeRelative = path === "~" || path.startsWith("~/");
+  const prefix = isHomeRelative ? "~" : "";
+  const rawSegments = (isHomeRelative ? path.slice(2) : path).split("/");
+  const segments: string[] = [];
+
+  for (const segment of rawSegments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  if (isHomeRelative) {
+    return segments.length > 0 ? `${prefix}/${segments.join("/")}` : "~";
+  }
+  return `/${segments.join("/")}`.replace(/\/+$/, "") || "/";
 }
 
 function sameRemoteParent(path: string, parent: string): boolean {

@@ -327,13 +327,13 @@ public final class SftpManager implements AutoCloseable {
         return String.format("%04o", mode.getPermissionsMask());
     }
 
-    private String parentPath(String path) {
+    static String parentPath(String path) {
         if (!hasText(path) || "/".equals(path)) {
             return "/";
         }
         int index = path.lastIndexOf('/');
         if (index <= 0) {
-            return ".";
+            return "/";
         }
         return path.substring(0, index);
     }
@@ -381,7 +381,7 @@ public final class SftpManager implements AutoCloseable {
         return value.trim();
     }
 
-    private boolean hasText(String value) {
+    private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
 

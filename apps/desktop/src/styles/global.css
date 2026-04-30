@@ -770,28 +770,33 @@ h2 {
 .terminal-tabs {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  min-height: 54px;
-  padding: 0 var(--space-3);
+  gap: 10px;
+  min-height: 58px;
+  padding: 8px 14px 8px 28px;
   overflow-x: auto;
   border-bottom: 1px solid #1d232b;
   background: #090b0e;
   -webkit-app-region: drag;
+  scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .terminal-tab {
   display: inline-grid;
   grid-template-columns: minmax(0, auto) auto;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: 0 1 auto;
   width: max-content;
-  max-width: min(300px, 28vw);
+  max-width: min(320px, 30vw);
   min-width: 0;
-  min-height: 34px;
-  padding: 0 6px 0 var(--space-2);
+  min-height: 38px;
+  padding: 0 8px 0 12px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--color-text-muted);
   background: #191b1f;
   -webkit-app-region: no-drag;
@@ -803,8 +808,8 @@ h2 {
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  max-width: 240px;
-  min-height: 30px;
+  max-width: 252px;
+  min-height: 34px;
   padding: 0;
   border: 0;
   color: inherit;
@@ -818,6 +823,10 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.terminal-tab-main svg {
+  flex: 0 0 auto;
 }
 
 .terminal-tab:hover,
@@ -841,11 +850,11 @@ h2 {
   display: inline-flex;
   grid-template-columns: none;
   width: auto;
-  min-width: 140px;
-  max-width: 180px;
+  min-width: 154px;
+  max-width: 190px;
   flex: 0 0 auto;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
+  padding: 0 14px;
   place-items: center;
   justify-content: flex-start;
   color: var(--color-text-muted);
@@ -866,8 +875,8 @@ h2 {
 
 .tab-close {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border: 0;
   border-radius: var(--radius-1);
@@ -1466,13 +1475,28 @@ h2 {
   background: rgba(0, 0, 0, 0.16);
 }
 
-.tool-path span {
+.tool-path input {
   min-width: 0;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  outline: none;
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-path input:focus {
+  color: var(--color-text);
+}
+
+.tool-path input:disabled {
+  opacity: 1;
 }
 
 .icon-toolbar {
@@ -1492,7 +1516,10 @@ h2 {
 
 .file-table,
 .process-table {
+  position: relative;
   display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -1502,6 +1529,15 @@ h2 {
   background: rgba(0, 0, 0, 0.08);
   scrollbar-color: rgba(148, 163, 184, 0.42) transparent;
   scrollbar-width: thin;
+}
+
+.file-table.is-dragging {
+  border-color: rgba(66, 197, 173, 0.44);
+  background: rgba(66, 197, 173, 0.035);
+}
+
+.file-table.is-drop-target {
+  box-shadow: inset 0 0 0 1px rgba(66, 197, 173, 0.22);
 }
 
 .file-table::-webkit-scrollbar,
@@ -1562,6 +1598,12 @@ h2 {
   background: rgba(66, 197, 173, 0.1);
 }
 
+.file-row--drop-target {
+  color: var(--color-text);
+  background: rgba(66, 197, 173, 0.16);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
 .file-row--head,
 .process-row--head {
   position: sticky;
@@ -1576,6 +1618,24 @@ h2 {
   font-weight: 700;
   text-transform: uppercase;
   background: #171d23;
+}
+
+.file-drop-indicator {
+  position: sticky;
+  top: 36px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 8px var(--space-3);
+  padding: 7px 10px;
+  border: 1px solid rgba(66, 197, 173, 0.36);
+  border-radius: var(--radius-2);
+  color: var(--color-accent-strong);
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(17, 27, 31, 0.92);
+  pointer-events: none;
 }
 
 .file-row--state {
@@ -2488,11 +2548,19 @@ h2 {
     grid-template-rows: minmax(360px, 58vh);
   }
 
+  .terminal-tabs {
+    gap: var(--space-2);
+    min-height: 52px;
+    padding: 7px 10px 7px 14px;
+  }
+
   .terminal-tab {
+    min-height: 36px;
     max-width: min(220px, 64vw);
   }
 
   .terminal-tab-main {
+    min-height: 32px;
     max-width: 168px;
   }
 
