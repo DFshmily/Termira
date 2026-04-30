@@ -712,6 +712,8 @@ export function App() {
   const [sftpParentPath, setSftpParentPath] = useState("");
   const [sftpEntries, setSftpEntries] = useState<SftpFileEntry[]>([]);
   const [selectedSftpPath, setSelectedSftpPath] = useState("");
+  const [isCreatingSftpDirectory, setIsCreatingSftpDirectory] = useState(false);
+  const [newSftpDirectoryName, setNewSftpDirectoryName] = useState("");
   const [isSftpLoading, setIsSftpLoading] = useState(false);
   const [sftpError, setSftpError] = useState<string | null>(null);
   const [sftpTransfers, setSftpTransfers] = useState<SftpTransfer[]>([]);
@@ -723,6 +725,7 @@ export function App() {
   const pendingTerminalOutputRef = useRef<Map<string, string[]>>(new Map());
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const newSftpDirectoryInputRef = useRef<HTMLInputElement | null>(null);
   const sftpContextRef = useRef({ sessionId: "", path: "~" });
   const sftpRefreshRef = useRef<(path?: string) => void>(() => undefined);
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
@@ -749,6 +752,12 @@ export function App() {
   const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
   const isSftpAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
   const selectedSftpEntry = sftpEntries.find((entry) => entry.path === selectedSftpPath);
+  const shouldCloseActiveTerminalTab =
+    activeTerminal.id !== "tab-preview" &&
+    (activeTerminal.status === "disconnected" || activeTerminal.status === "failed" || activeTerminal.kind === "hostPicker");
+  const isTerminalStopButtonDisabled =
+    activeTerminal.id === "tab-preview" ||
+    (!shouldCloseActiveTerminalTab && (!activeTerminal.sessionId || activeTerminal.status === "disconnected"));
 
   const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
   const isHostsHome = activeView === "hosts";
@@ -1076,6 +1085,13 @@ export function App() {
   }, [activeTool, activeTerminal.cwd, activeTerminal.sessionId, isSftpAvailable, sftpSessionId]);
 
   useEffect(() => {
+    if (isCreatingSftpDirectory) {
+      newSftpDirectoryInputRef.current?.focus();
+      newSftpDirectoryInputRef.current?.select();
+    }
+  }, [isCreatingSftpDirectory]);
+
+  useEffect(() => {
     const resizeActiveTerminal = () => {
       if (activeTerminal.id !== "tab-preview") {
         fitAndResizeTerminal(activeTerminal.id);
@@ -1351,6 +1367,11 @@ export function App() {
     if (tab?.sessionId) {
       void window.termira.invoke("ssh.disconnect", { sessionId: tab.sessionId }).catch(() => undefined);
     }
+    if (tab?.sessionId && sftpSessionId === tab.sessionId) {
+      setSftpSessionId("");
+      setSftpEntries([]);
+      setSelectedSftpPath("");
+    }
     disposeTerminal(tabId);
 
     const nextTabs = terminalTabs.filter((item) => item.id !== tabId);
@@ -1432,6 +1453,18 @@ export function App() {
       terminalTabsRef.current = updated;
       return updated;
     });
+  }
+
+  function reconnectTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab || tab.kind === "hostPicker" || tab.status === "connected" || tab.status === "connecting") {
+      return;
+    }
+    const host = hosts.find((item) => item.id === tab.hostId);
+    if (host) {
+      void openTerminalForHost(host, tabId);
+    }
   }
 
   async function openTerminalForHost(
@@ -1585,8 +1618,9 @@ export function App() {
     setActiveView("terminal");
   }
 
-  async function disconnectActiveTerminal() {
-    const tab = terminalTabsRef.current.find((item) => item.id === activeTerminal.id);
+  async function disconnectTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
     if (!tab?.sessionId) {
       return;
     }
@@ -1595,7 +1629,7 @@ export function App() {
     setTerminalError(null);
     setTerminalTabs((current) => {
       const updated: TerminalSession[] = current.map((tab) =>
-        tab.id === activeTerminal.id
+        tab.id === tabId
           ? {
               ...tab,
               status: "disconnected",
@@ -1631,6 +1665,18 @@ export function App() {
     if (firstError) {
       setTerminalError(errorMessage(firstError));
     }
+  }
+
+  async function disconnectActiveTerminal() {
+    await disconnectTerminalTab(activeTerminal.id);
+  }
+
+  function handleTerminalStopButton() {
+    if (shouldCloseActiveTerminalTab) {
+      closeTerminalTab(activeTerminal.id);
+      return;
+    }
+    void disconnectActiveTerminal();
   }
 
   async function sendCommandToActiveTerminal(command: string) {
@@ -1673,6 +1719,8 @@ export function App() {
       setSftpParentPath(result.parentPath);
       setSftpEntries(result.entries);
       setSelectedSftpPath("");
+      setIsCreatingSftpDirectory(false);
+      setNewSftpDirectoryName("");
     } catch (error) {
       setSftpError(errorMessage(error));
     } finally {
@@ -1694,17 +1742,37 @@ export function App() {
     }
   }
 
-  async function createSftpDirectory() {
-    const name = window.prompt(text.tools.files.mkdirPrompt);
-    if (!name?.trim()) {
+  function startCreatingSftpDirectory() {
+    if (!activeTerminal.sessionId || activeTerminal.status !== "connected") {
+      setSftpError(text.tools.files.noSession);
+      return;
+    }
+    setSelectedSftpPath("");
+    setSftpError(null);
+    setNewSftpDirectoryName("");
+    setIsCreatingSftpDirectory(true);
+  }
+
+  function cancelCreatingSftpDirectory() {
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
+  }
+
+  async function createSftpDirectory(event?: FormEvent) {
+    event?.preventDefault();
+    const name = newSftpDirectoryName.trim();
+    if (!name || name.includes("/")) {
+      setSftpError(text.tools.files.folderNameRequired);
       return;
     }
     await runSftpOperation(() =>
       window.termira.invoke("sftp.mkdir", {
         sessionId: activeTerminal.sessionId,
-        path: joinRemotePath(sftpPath, name.trim())
+        path: joinRemotePath(sftpPath, name)
       })
     );
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
   }
 
   async function renameSftpEntry() {
@@ -1981,115 +2049,144 @@ export function App() {
     const canMutate = Boolean(selectedSftpEntry);
 
     return (
-      <div className="tool-content">
-        <div className="tool-path">
-          <FolderOpen size={15} aria-hidden="true" />
-          <span title={sftpPath}>{canUseFiles ? sftpPath : text.tools.files.noSession}</span>
-        </div>
-
-        <div className="icon-toolbar" aria-label={text.tools.files.toolbar}>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.tools.files.up}
-            aria-label={text.tools.files.up}
-            disabled={!canUseFiles || !sftpParentPath || sftpPath === sftpParentPath}
-            onClick={() => void loadSftpPath(sftpParentPath)}
-          >
-            <ArrowUp size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.actions.refresh}
-            aria-label={text.actions.refresh}
-            disabled={!canUseFiles || isSftpLoading}
-            onClick={() => void loadSftpPath(sftpPath)}
-          >
-            {isSftpLoading ? <Loader2 className="spin-icon" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.tools.files.upload}
-            aria-label={text.tools.files.upload}
-            disabled={!canUseFiles}
-            onClick={() => uploadInputRef.current?.click()}
-          >
-            <Upload size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.tools.files.download}
-            aria-label={text.tools.files.download}
-            disabled={!canUseFiles || !canDownload}
-            onClick={() => void downloadSftpEntry()}
-          >
-            <Download size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.tools.files.mkdir}
-            aria-label={text.tools.files.mkdir}
-            disabled={!canUseFiles}
-            onClick={() => void createSftpDirectory()}
-          >
-            <FolderPlus size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title={text.tools.files.rename}
-            aria-label={text.tools.files.rename}
-            disabled={!canUseFiles || !canMutate}
-            onClick={() => void renameSftpEntry()}
-          >
-            <Pencil size={15} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button icon-button--danger"
-            type="button"
-            title={text.tools.files.delete}
-            aria-label={text.tools.files.delete}
-            disabled={!canUseFiles || !canMutate}
-            onClick={() => void removeSftpEntry()}
-          >
-            <Trash2 size={15} aria-hidden="true" />
-          </button>
-          <input
-            ref={uploadInputRef}
-            className="visually-hidden"
-            type="file"
-            multiple
-            tabIndex={-1}
-            onChange={(event) => void handleUploadSelection(event.currentTarget.files)}
-          />
-        </div>
-
-        {!canUseFiles ? (
-          <div className="inline-state">
+      <div className="tool-content tool-content--files">
+        <div className="sftp-browser-head">
+          <div className="tool-path">
             <FolderOpen size={15} aria-hidden="true" />
-            <span>{text.tools.files.noSession}</span>
+            <span title={sftpPath}>{canUseFiles ? sftpPath : text.tools.files.noSession}</span>
           </div>
-        ) : null}
 
-        {sftpError ? (
-          <div className="inline-state inline-state--error">
-            <AlertTriangle size={15} aria-hidden="true" />
-            <span>{sftpError}</span>
+          <div className="icon-toolbar" aria-label={text.tools.files.toolbar}>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.up}
+              aria-label={text.tools.files.up}
+              disabled={!canUseFiles || !sftpParentPath || sftpPath === sftpParentPath}
+              onClick={() => void loadSftpPath(sftpParentPath)}
+            >
+              <ArrowUp size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.actions.refresh}
+              aria-label={text.actions.refresh}
+              disabled={!canUseFiles || isSftpLoading}
+              onClick={() => void loadSftpPath(sftpPath)}
+            >
+              {isSftpLoading ? <Loader2 className="spin-icon" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.upload}
+              aria-label={text.tools.files.upload}
+              disabled={!canUseFiles}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <Upload size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.download}
+              aria-label={text.tools.files.download}
+              disabled={!canUseFiles || !canDownload}
+              onClick={() => void downloadSftpEntry()}
+            >
+              <Download size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.mkdir}
+              aria-label={text.tools.files.mkdir}
+              disabled={!canUseFiles}
+              onClick={startCreatingSftpDirectory}
+            >
+              <FolderPlus size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.rename}
+              aria-label={text.tools.files.rename}
+              disabled={!canUseFiles || !canMutate}
+              onClick={() => void renameSftpEntry()}
+            >
+              <Pencil size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button icon-button--danger"
+              type="button"
+              title={text.tools.files.delete}
+              aria-label={text.tools.files.delete}
+              disabled={!canUseFiles || !canMutate}
+              onClick={() => void removeSftpEntry()}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+            </button>
+            <input
+              ref={uploadInputRef}
+              className="visually-hidden"
+              type="file"
+              multiple
+              tabIndex={-1}
+              onChange={(event) => void handleUploadSelection(event.currentTarget.files)}
+            />
           </div>
-        ) : null}
 
-        <div className="file-table" aria-label={text.tools.files.list}>
-          <div className="file-row file-row--head">
-            <span>{text.tools.files.name}</span>
-            <span>{text.tools.files.size} / {text.tools.files.modified} / {text.tools.files.permissions}</span>
-          </div>
-          {isSftpLoading ? (
-            <div className="file-row file-row--state">
-              <span>
+          {!canUseFiles ? (
+            <div className="inline-state">
+              <FolderOpen size={15} aria-hidden="true" />
+              <span>{text.tools.files.noSession}</span>
+            </div>
+          ) : null}
+
+          {sftpError ? (
+            <div className="inline-state inline-state--error">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>{sftpError}</span>
+            </div>
+          ) : null}
+        </div>
+
+	        <div className="file-table" aria-label={text.tools.files.list}>
+	          <div className="file-row file-row--head">
+	            <span>{text.tools.files.name}</span>
+	            <span>{text.tools.files.size} / {text.tools.files.modified} / {text.tools.files.permissions}</span>
+	          </div>
+	          {isCreatingSftpDirectory ? (
+	            <form className="file-row file-row--create" onSubmit={(event) => void createSftpDirectory(event)}>
+	              <span className="file-name">
+	                <Folder size={15} aria-hidden="true" />
+	                <input
+	                  ref={newSftpDirectoryInputRef}
+	                  value={newSftpDirectoryName}
+	                  placeholder={text.tools.files.newFolderPlaceholder}
+	                  onChange={(event) => setNewSftpDirectoryName(event.currentTarget.value)}
+	                  onKeyDown={(event) => {
+	                    if (event.key === "Escape") {
+	                      event.preventDefault();
+	                      cancelCreatingSftpDirectory();
+	                    }
+	                  }}
+	                />
+	              </span>
+	              <span className="file-create-actions">
+	                <button className="icon-button" type="submit" title={text.tools.files.create} aria-label={text.tools.files.create}>
+	                  <Check size={14} aria-hidden="true" />
+	                </button>
+	                <button className="icon-button" type="button" title={text.hostEditor.cancel} aria-label={text.hostEditor.cancel} onClick={cancelCreatingSftpDirectory}>
+	                  <X size={14} aria-hidden="true" />
+	                </button>
+	              </span>
+	            </form>
+	          ) : null}
+	          {isSftpLoading ? (
+	            <div className="file-row file-row--state">
+	              <span>
                 <Loader2 className="spin-icon" size={14} aria-hidden="true" />
                 {text.tools.files.loading}
               </span>
@@ -2103,18 +2200,18 @@ export function App() {
                 title={entry.path}
                 onClick={() => setSelectedSftpPath(entry.path)}
                 onDoubleClick={() => openSftpEntry(entry)}
-              >
-                <span className="file-name">
-                  {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
-                  <span>{entry.name}</span>
-                </span>
-                <span className="file-meta">
-                  <span>{entry.directory ? text.tools.files.folderType : formatBytes(entry.size)}</span>
-                  <span>{formatRemoteTime(entry.modifiedAt)}</span>
-                  <span>{entry.permissions}</span>
-                </span>
-              </button>
-            ))
+	              >
+	                <span className="file-name">
+	                  {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
+	                  <span>{entry.name}</span>
+	                </span>
+	                <span className="file-meta">
+	                  <span>{entry.directory ? text.tools.files.folderType : formatBytes(entry.size)}</span>
+	                  <span>{formatRemoteTime(entry.modifiedAt)}</span>
+	                  <span>{entry.permissions}</span>
+	                </span>
+	              </button>
+	            ))
           ) : (
             <div className="file-row file-row--state">
               <span>{canUseFiles ? text.tools.files.empty : text.tools.files.noSession}</span>
@@ -2122,7 +2219,7 @@ export function App() {
           )}
         </div>
 
-        <section className="subpanel" aria-label={text.tools.files.queue}>
+	        <section className="subpanel subpanel--queue" aria-label={text.tools.files.queue}>
           <div className="subpanel-heading">
             <span>{text.tools.files.queue}</span>
             <strong>{text.tools.files.queueCount(sftpTransfers.length)}</strong>
@@ -2417,6 +2514,8 @@ export function App() {
     if (!tab) {
       return null;
     }
+    const canReconnectTab = tab.kind !== "hostPicker" && tab.status !== "connected" && tab.status !== "connecting";
+    const canDisconnectTab = Boolean(tab.sessionId) && tab.status !== "disconnected" && tab.status !== "failed";
 
     return (
       <>
@@ -2437,6 +2536,17 @@ export function App() {
             <RefreshCw size={15} aria-hidden="true" />
             <span>{text.terminal.tabMenu.duplicate}</span>
           </button>
+          {canReconnectTab ? (
+            <button type="button" role="menuitem" onClick={() => reconnectTerminalTab(tab.id)}>
+              <RotateCcw size={15} aria-hidden="true" />
+              <span>{text.terminal.tabMenu.reconnect}</span>
+            </button>
+          ) : (
+            <button type="button" role="menuitem" disabled={!canDisconnectTab} onClick={() => void disconnectTerminalTab(tab.id)}>
+              <Square size={15} aria-hidden="true" />
+              <span>{text.terminal.tabMenu.disconnect}</span>
+            </button>
+          )}
           <button type="button" role="menuitem" disabled>
             <Maximize2 size={15} aria-hidden="true" />
             <span>{text.terminal.tabMenu.duplicateWindow}</span>
@@ -2613,15 +2723,15 @@ export function App() {
                         >
                           {activeTerminal.status === "connecting" ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
                         </button>
-                        <button
-                          type="button"
-                          title={text.hosts.disconnect}
-                          aria-label={text.hosts.disconnect}
-                          disabled={!activeTerminal.sessionId || activeTerminal.status === "disconnected"}
-                          onClick={disconnectActiveTerminal}
-                        >
-                          <Square size={14} aria-hidden="true" />
-                        </button>
+	                        <button
+	                          type="button"
+	                          title={shouldCloseActiveTerminalTab ? text.terminal.closeTab : text.hosts.disconnect}
+	                          aria-label={shouldCloseActiveTerminalTab ? text.terminal.closeTab : text.hosts.disconnect}
+	                          disabled={isTerminalStopButtonDisabled}
+	                          onClick={handleTerminalStopButton}
+	                        >
+	                          {shouldCloseActiveTerminalTab ? <X size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />}
+	                        </button>
                         <button type="button" title={text.actions.maximize} aria-label={text.actions.maximize}>
                           <Maximize2 size={14} aria-hidden="true" />
                         </button>
