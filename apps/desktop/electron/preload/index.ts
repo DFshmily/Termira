@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 type EventHandler = (payload: unknown, event: string) => void;
 
@@ -24,6 +24,9 @@ ipcRenderer.on(
 contextBridge.exposeInMainWorld("termira", {
   invoke(method: string, params?: unknown) {
     return ipcRenderer.invoke("termira:invoke", { method, params });
+  },
+  getPathForFile(file: File) {
+    return webUtils.getPathForFile(file);
   },
   on(event: string, handler: EventHandler) {
     const eventListeners = listeners.get(event) ?? new Set<EventHandler>();

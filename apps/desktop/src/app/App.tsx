@@ -4,16 +4,24 @@ import { Terminal as XTermTerminal, type IDisposable, type ITheme } from "@xterm
 import "@xterm/xterm/css/xterm.css";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   BarChart3,
+  Ban,
+  Check,
   Command,
   Cpu,
+  Download,
+  File as FileIcon,
   Folder,
+  FolderPlus,
   FolderOpen,
   Gauge,
   KeyRound,
   Loader2,
   Lock,
   Maximize2,
+  Minimize2,
   Minus,
   Network,
   PanelRightClose,
@@ -22,6 +30,8 @@ import {
   Palette,
   Play,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   Server,
   Settings,
@@ -31,10 +41,23 @@ import {
   Terminal,
   Trash2,
   Unlock,
+  Upload,
   X,
   Zap
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode
+} from "react";
 import {
   DEFAULT_LANGUAGE,
   getMessages,
@@ -133,6 +156,12 @@ type TerminalSession = {
   error?: string;
 };
 
+type TerminalTabMenuState = {
+  tabId: string;
+  x: number;
+  y: number;
+};
+
 type SshSessionView = {
   sessionId: string;
   profileId?: string;
@@ -161,6 +190,59 @@ type TerminalOutputPayload = {
 type TerminalClosedPayload = {
   sessionId: string;
   channelId: string;
+};
+
+type SftpOpenResult = {
+  sessionId: string;
+  path: string;
+  version: number;
+};
+
+type SftpFileEntry = {
+  name: string;
+  path: string;
+  parentPath: string;
+  type: string;
+  size: number;
+  permissions: string;
+  modifiedAt?: string;
+  modifiedTime: number;
+  directory: boolean;
+  regularFile: boolean;
+  symlink: boolean;
+};
+
+type SftpSortKey = "name" | "modified" | "size" | "permissions";
+type SftpSortDirection = "asc" | "desc";
+type SftpSortState = {
+  key: SftpSortKey;
+  direction: SftpSortDirection;
+};
+
+type SftpListResult = {
+  sessionId: string;
+  path: string;
+  parentPath: string;
+  entries: SftpFileEntry[];
+};
+
+type TransferStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+type SftpTransfer = {
+  transferId: string;
+  sessionId: string;
+  direction: "upload" | "download";
+  localPath: string;
+  remotePath: string;
+  fileName: string;
+  status: TransferStatus;
+  bytesTransferred: number;
+  totalBytes: number;
+  percent: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type XTermEntry = {
@@ -208,10 +290,18 @@ const HOST_PICKER_HOST_ID = "__host_picker";
 const TERMINAL_THEME_STORAGE_KEY = "termira.terminal.theme";
 const TERMINAL_FONT_STORAGE_KEY = "termira.terminal.font";
 const TERMINAL_FONT_SIZE_STORAGE_KEY = "termira.terminal.fontSize";
+const TOOL_DOCK_WIDTH_STORAGE_KEY = "termira.layout.toolDockWidth";
+const SFTP_QUEUE_HEIGHT_STORAGE_KEY = "termira.layout.sftpQueueHeight";
 const DEFAULT_TERMINAL_FONT_ID: TerminalFontId = "source-code-pro";
 const DEFAULT_TERMINAL_FONT_SIZE = 14;
 const MIN_TERMINAL_FONT_SIZE = 10;
 const MAX_TERMINAL_FONT_SIZE = 24;
+const DEFAULT_TOOL_DOCK_WIDTH = 432;
+const MIN_TOOL_DOCK_WIDTH = 380;
+const MAX_TOOL_DOCK_WIDTH = 760;
+const DEFAULT_SFTP_QUEUE_HEIGHT = 168;
+const MIN_SFTP_QUEUE_HEIGHT = 88;
+const MAX_SFTP_QUEUE_HEIGHT = 380;
 
 const defaultHostForm: HostFormState = {
   name: "",
@@ -627,11 +717,21 @@ export function App() {
   const [terminalFontSize, setTerminalFontSize] = useState(() =>
     parseTerminalFontSize(window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY))
   );
+  const [toolDockWidth, setToolDockWidth] = useState(() =>
+    parseToolDockWidth(window.localStorage.getItem(TOOL_DOCK_WIDTH_STORAGE_KEY))
+  );
+  const [sftpQueueHeight, setSftpQueueHeight] = useState(() =>
+    parseSftpQueueHeight(window.localStorage.getItem(SFTP_QUEUE_HEIGHT_STORAGE_KEY))
+  );
+  const [isToolDockResizing, setIsToolDockResizing] = useState(false);
+  const [isSftpQueueResizing, setIsSftpQueueResizing] = useState(false);
   const [isToolDockCollapsed, setIsToolDockCollapsed] = useState(true);
+  const [isTerminalMaximized, setIsTerminalMaximized] = useState(false);
   const [hostSearch, setHostSearch] = useState("");
   const [selectedHostId, setSelectedHostId] = useState("");
   const [activeTerminalTabId, setActiveTerminalTabId] = useState("tab-preview");
   const [terminalTabs, setTerminalTabs] = useState<TerminalSession[]>([]);
+  const [terminalTabMenu, setTerminalTabMenu] = useState<TerminalTabMenuState | null>(null);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [hostProfiles, setHostProfiles] = useState<BackendHostProfile[]>([]);
   const [isHostLoading, setIsHostLoading] = useState(true);
@@ -645,13 +745,36 @@ export function App() {
   const [vaultError, setVaultError] = useState<string | null>(null);
   const [vaultMasterPassword, setVaultMasterPassword] = useState("");
   const [isVaultBusy, setIsVaultBusy] = useState(false);
+  const [sftpSessionId, setSftpSessionId] = useState("");
+  const [sftpPath, setSftpPath] = useState("~");
+  const [sftpPathInput, setSftpPathInput] = useState("~");
+  const [sftpParentPath, setSftpParentPath] = useState("");
+  const [sftpEntries, setSftpEntries] = useState<SftpFileEntry[]>([]);
+  const [selectedSftpPath, setSelectedSftpPath] = useState("");
+  const [sftpDragTargetPath, setSftpDragTargetPath] = useState<string | null>(null);
+  const [isCreatingSftpDirectory, setIsCreatingSftpDirectory] = useState(false);
+  const [newSftpDirectoryName, setNewSftpDirectoryName] = useState("");
+  const [renamingSftpPath, setRenamingSftpPath] = useState("");
+  const [sftpRenameName, setSftpRenameName] = useState("");
+  const [sftpSort, setSftpSort] = useState<SftpSortState>({ key: "name", direction: "asc" });
+  const [isSftpLoading, setIsSftpLoading] = useState(false);
+  const [sftpError, setSftpError] = useState<string | null>(null);
+  const [sftpTransfers, setSftpTransfers] = useState<SftpTransfer[]>([]);
 
   const text = getMessages(language);
   const terminalTabsRef = useRef<TerminalSession[]>([]);
   const openingHostTabIdsRef = useRef<Map<string, string>>(new Map());
   const xtermEntriesRef = useRef<Map<string, XTermEntry>>(new Map());
   const pendingTerminalOutputRef = useRef<Map<string, string[]>>(new Map());
+  const terminalInputBuffersRef = useRef<Map<string, string>>(new Map());
   const resizeTimersRef = useRef<Map<string, number>>(new Map());
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const newSftpDirectoryInputRef = useRef<HTMLInputElement | null>(null);
+  const renameSftpInputRef = useRef<HTMLInputElement | null>(null);
+  const sftpContextRef = useRef({ sessionId: "", path: "~" });
+  const sftpRefreshRef = useRef<(path?: string) => void>(() => undefined);
+  const sftpUploadTargetsRef = useRef<Map<string, string>>(new Map());
+  const sftpRefreshTimersRef = useRef<Map<string, number>>(new Map());
   const hostStatusById = useMemo(() => buildHostStatusMap(terminalTabs), [terminalTabs]);
   const hosts = useMemo(() => hostProfiles.map((profile) => profileToHostItem(profile, hostStatusById.get(profile.id))), [hostProfiles, hostStatusById]);
   const placeholderHost = useMemo(() => createPlaceholderHost(language), [language]);
@@ -674,9 +797,22 @@ export function App() {
   const activeToolDefinition = toolDefinitions.find((tool) => tool.id === activeTool) ?? toolDefinitions[0];
   const terminalTheme = terminalThemesById.get(terminalThemeId) ?? terminalThemes[0];
   const terminalFont = terminalFontOptionsById.get(terminalFontId) ?? terminalFontOptions[0];
+  const isSftpAvailable = activeTerminal.status === "connected" && Boolean(activeTerminal.sessionId);
+  const selectedSftpEntry = sftpEntries.find((entry) => entry.path === selectedSftpPath);
+  const sortedSftpEntries = useMemo(() => sortSftpEntries(sftpEntries, sftpSort), [sftpEntries, sftpSort]);
+  const shouldCloseActiveTerminalTab =
+    activeTerminal.id !== "tab-preview" &&
+    (activeTerminal.status === "disconnected" || activeTerminal.status === "failed" || activeTerminal.kind === "hostPicker");
+  const isTerminalStopButtonDisabled =
+    activeTerminal.id === "tab-preview" ||
+    (!shouldCloseActiveTerminalTab && (!activeTerminal.sessionId || activeTerminal.status === "disconnected"));
 
   const visibleHosts = useMemo(() => filterHosts(hosts, hostSearch, language), [hosts, hostSearch, language]);
   const isHostsHome = activeView === "hosts";
+  const workbenchStyle =
+    !isToolDockCollapsed && !isHostPickerActive && !isTerminalMaximized
+      ? ({ "--tool-dock-width": `${toolDockWidth}px` } as CSSProperties)
+      : undefined;
   const fitAndResizeTerminal = useCallback((tabId: string) => {
     const entry = xtermEntriesRef.current.get(tabId);
     if (!entry) {
@@ -722,6 +858,50 @@ export function App() {
     pendingTerminalOutputRef.current.delete(tabId);
   }, []);
 
+  const updateTerminalCwd = useCallback((tabId: string, cwd: string) => {
+    setTerminalTabs((current) => {
+      const updated = current.map((tab) => (tab.id === tabId ? { ...tab, cwd } : tab));
+      terminalTabsRef.current = updated;
+      return updated;
+    });
+  }, []);
+
+  const recordTerminalInput = useCallback(
+    (tabId: string, data: string) => {
+      let buffer = terminalInputBuffersRef.current.get(tabId) ?? "";
+
+      for (const char of data) {
+        if (char === "\r" || char === "\n") {
+          const command = buffer.trim();
+          buffer = "";
+          const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+          const nextCwd = tab ? inferCwdFromShellCommand(command, tab.cwd) : null;
+          if (nextCwd && tab && nextCwd !== tab.cwd) {
+            updateTerminalCwd(tabId, nextCwd);
+          }
+          continue;
+        }
+
+        if (char === "\u007f" || char === "\b") {
+          buffer = buffer.slice(0, -1);
+          continue;
+        }
+
+        if (char === "\u0003" || char === "\u0015") {
+          buffer = "";
+          continue;
+        }
+
+        if (char >= " " && char !== "\u007f") {
+          buffer += char;
+        }
+      }
+
+      terminalInputBuffersRef.current.set(tabId, buffer.slice(-512));
+    },
+    [updateTerminalCwd]
+  );
+
   const mountTerminal = useCallback(
     (tabId: string, node: HTMLDivElement | null) => {
       if (!node || xtermEntriesRef.current.has(tabId)) {
@@ -742,6 +922,7 @@ export function App() {
       terminal.loadAddon(fitAddon);
 
       const inputDisposable = terminal.onData((data) => {
+        recordTerminalInput(tabId, data);
         const tab = terminalTabsRef.current.find((item) => item.id === tabId);
         if (!tab?.sessionId || !tab.channelId || tab.status !== "connected") {
           return;
@@ -763,7 +944,7 @@ export function App() {
       }
       pendingTerminalOutputRef.current.delete(tabId);
     },
-    [fitAndResizeTerminal, terminalFont.stack, terminalFontSize, terminalTheme.palette]
+    [fitAndResizeTerminal, recordTerminalInput, terminalFont.stack, terminalFontSize, terminalTheme.palette]
   );
 
   useEffect(() => {
@@ -792,8 +973,53 @@ export function App() {
   }, [fitAndResizeTerminal, terminalFont, terminalFontSize]);
 
   useEffect(() => {
+    window.localStorage.setItem(TOOL_DOCK_WIDTH_STORAGE_KEY, String(toolDockWidth));
+  }, [toolDockWidth]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SFTP_QUEUE_HEIGHT_STORAGE_KEY, String(sftpQueueHeight));
+  }, [sftpQueueHeight]);
+
+  useEffect(() => {
     terminalTabsRef.current = terminalTabs;
   }, [terminalTabs]);
+
+  useEffect(() => {
+    if (!terminalTabMenu) {
+      return undefined;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".terminal-tab-menu") || target?.closest(".terminal-tab")) {
+        return;
+      }
+      setTerminalTabMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setTerminalTabMenu(null);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [terminalTabMenu]);
+
+  useEffect(() => {
+    sftpContextRef.current = {
+      sessionId: activeTerminal.sessionId ?? "",
+      path: sftpPath
+    };
+  }, [activeTerminal.sessionId, sftpPath]);
+
+  useEffect(() => {
+    sftpRefreshRef.current = (path?: string) => {
+      void loadSftpPath(path ?? sftpContextRef.current.path);
+    };
+  });
 
   useEffect(() => {
     void refreshProfiles();
@@ -878,24 +1104,114 @@ export function App() {
                 error: status.errorMessage
               }
             : tab
-        )
+          )
       );
+    };
+
+    const onSftpListUpdated = (payload: unknown) => {
+      const result = payload as Partial<SftpListResult>;
+      if (typeof result.sessionId !== "string" || typeof result.path !== "string" || !Array.isArray(result.entries)) {
+        return;
+      }
+      if (result.sessionId !== sftpContextRef.current.sessionId) {
+        return;
+      }
+      setSftpSessionId(result.sessionId);
+      setSftpPath(result.path);
+      setSftpPathInput(result.path);
+      setSftpParentPath(typeof result.parentPath === "string" ? result.parentPath : "");
+      setSftpEntries(result.entries as SftpFileEntry[]);
+    };
+
+    const onTransferEvent = (payload: unknown) => {
+      const transfer = payload as Partial<SftpTransfer>;
+      if (
+        typeof transfer.transferId !== "string" ||
+        typeof transfer.sessionId !== "string" ||
+        typeof transfer.direction !== "string" ||
+        typeof transfer.status !== "string"
+      ) {
+        return;
+      }
+      const nextTransfer = transfer as SftpTransfer;
+      upsertSftpTransfer(nextTransfer);
+      const context = sftpContextRef.current;
+      const uploadTargetPath = sftpUploadTargetsRef.current.get(nextTransfer.transferId);
+      const completedUpload = nextTransfer.status === "completed" && nextTransfer.direction === "upload";
+      if (
+        completedUpload &&
+        nextTransfer.sessionId === context.sessionId &&
+        (sameRemotePath(uploadTargetPath, context.path) || sameRemoteParent(nextTransfer.remotePath, context.path))
+      ) {
+        scheduleSftpRefresh(context.path);
+      }
+      if (completedUpload || nextTransfer.status === "failed" || nextTransfer.status === "cancelled") {
+        sftpUploadTargetsRef.current.delete(nextTransfer.transferId);
+      }
     };
 
     window.termira.removeAllListeners?.("terminal.output");
     window.termira.removeAllListeners?.("terminal.closed");
     window.termira.removeAllListeners?.("ssh.statusChanged");
+    window.termira.removeAllListeners?.("sftp.listUpdated");
+    window.termira.removeAllListeners?.("transfer.progress");
+    window.termira.removeAllListeners?.("transfer.completed");
+    window.termira.removeAllListeners?.("transfer.failed");
 
     window.termira.on("terminal.output", onOutput);
     window.termira.on("terminal.closed", onTerminalClosed);
     window.termira.on("ssh.statusChanged", onSshStatus);
+    window.termira.on("sftp.listUpdated", onSftpListUpdated);
+    window.termira.on("transfer.progress", onTransferEvent);
+    window.termira.on("transfer.completed", onTransferEvent);
+    window.termira.on("transfer.failed", onTransferEvent);
 
     return () => {
       window.termira.off("terminal.output", onOutput);
       window.termira.off("terminal.closed", onTerminalClosed);
       window.termira.off("ssh.statusChanged", onSshStatus);
+      window.termira.off("sftp.listUpdated", onSftpListUpdated);
+      window.termira.off("transfer.progress", onTransferEvent);
+      window.termira.off("transfer.completed", onTransferEvent);
+      window.termira.off("transfer.failed", onTransferEvent);
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTool !== "files") {
+      return;
+    }
+
+    if (!isSftpAvailable || !activeTerminal.sessionId) {
+      setSftpSessionId("");
+      setSftpEntries([]);
+      setSelectedSftpPath("");
+      return;
+    }
+
+    if (sftpSessionId !== activeTerminal.sessionId) {
+      void loadSftpPath(activeTerminal.cwd || "~", activeTerminal.sessionId);
+      return;
+    }
+
+    if (activeTerminal.cwd && activeTerminal.cwd !== sftpPath) {
+      void loadSftpPath(activeTerminal.cwd, activeTerminal.sessionId);
+    }
+  }, [activeTool, activeTerminal.cwd, activeTerminal.sessionId, isSftpAvailable, sftpSessionId]);
+
+  useEffect(() => {
+    if (isCreatingSftpDirectory) {
+      newSftpDirectoryInputRef.current?.focus();
+      newSftpDirectoryInputRef.current?.select();
+    }
+  }, [isCreatingSftpDirectory]);
+
+  useEffect(() => {
+    if (renamingSftpPath) {
+      renameSftpInputRef.current?.focus();
+      renameSftpInputRef.current?.select();
+    }
+  }, [renamingSftpPath]);
 
   useEffect(() => {
     const resizeActiveTerminal = () => {
@@ -911,7 +1227,7 @@ export function App() {
     resizeActiveTerminal();
 
     return () => window.removeEventListener("resize", resizeActiveTerminal);
-  }, [activeTerminal.id, fitAndResizeTerminal, isToolDockCollapsed]);
+  }, [activeTerminal.id, fitAndResizeTerminal, isTerminalMaximized, isToolDockCollapsed, toolDockWidth]);
 
   useEffect(() => {
     if (activeTerminal.id === "tab-preview") {
@@ -940,6 +1256,10 @@ export function App() {
       for (const tabId of xtermEntriesRef.current.keys()) {
         disposeTerminal(tabId);
       }
+      for (const timer of sftpRefreshTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      sftpRefreshTimersRef.current.clear();
     },
     []
   );
@@ -1163,12 +1483,20 @@ export function App() {
   }
 
   function closeTerminalTab(tabId: string) {
+    if (terminalTabMenu?.tabId === tabId) {
+      setTerminalTabMenu(null);
+    }
     const tab = terminalTabs.find((item) => item.id === tabId);
     if (tab?.sessionId && tab.channelId) {
       void window.termira.invoke("terminal.close", { sessionId: tab.sessionId, channelId: tab.channelId }).catch(() => undefined);
     }
     if (tab?.sessionId) {
       void window.termira.invoke("ssh.disconnect", { sessionId: tab.sessionId }).catch(() => undefined);
+    }
+    if (tab?.sessionId && sftpSessionId === tab.sessionId) {
+      setSftpSessionId("");
+      setSftpEntries([]);
+      setSelectedSftpPath("");
     }
     disposeTerminal(tabId);
 
@@ -1180,6 +1508,88 @@ export function App() {
     }
     if (nextTabs.length === 0) {
       setActiveView("hosts");
+    }
+  }
+
+  function openTerminalTabMenu(tabId: string, event: ReactMouseEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (tabId === "tab-preview") {
+      return;
+    }
+    setActiveTerminalTabId(tabId);
+    setTerminalTabMenu({
+      tabId,
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 292)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 320))
+    });
+  }
+
+  function duplicateTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+    if (tab.kind === "hostPicker") {
+      openNewTerminalTab();
+      return;
+    }
+    const host = hosts.find((item) => item.id === tab.hostId);
+    if (host) {
+      void openTerminalForHost(host);
+      return;
+    }
+
+    const nextTab: TerminalSession = {
+      ...tab,
+      id: createTerminalTabId(),
+      status: "disconnected",
+      sessionId: undefined,
+      channelId: undefined,
+      error: undefined
+    };
+    const nextTabs = [...terminalTabsRef.current, nextTab];
+    terminalTabsRef.current = nextTabs;
+    setTerminalTabs(nextTabs);
+    setActiveTerminalTabId(nextTab.id);
+    setActiveView("terminal");
+  }
+
+  function renameTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+    const currentTitle = translate(tab.title, language);
+    const nextTitle = window.prompt(text.terminal.tabMenu.renamePrompt, currentTitle)?.trim();
+    if (!nextTitle || nextTitle === currentTitle) {
+      return;
+    }
+    setTerminalTabs((current) => {
+      const updated = current.map((item) =>
+        item.id === tabId
+          ? {
+              ...item,
+              title: toLocalized(nextTitle)
+            }
+          : item
+      );
+      terminalTabsRef.current = updated;
+      return updated;
+    });
+  }
+
+  function reconnectTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab || tab.kind === "hostPicker" || tab.status === "connected" || tab.status === "connecting") {
+      return;
+    }
+    const host = hosts.find((item) => item.id === tab.hostId);
+    if (host) {
+      void openTerminalForHost(host, tabId);
     }
   }
 
@@ -1334,34 +1744,65 @@ export function App() {
     setActiveView("terminal");
   }
 
-  async function disconnectActiveTerminal() {
-    if (!activeTerminal.sessionId) {
+  async function disconnectTerminalTab(tabId: string) {
+    setTerminalTabMenu(null);
+    const tab = terminalTabsRef.current.find((item) => item.id === tabId);
+    if (!tab?.sessionId) {
       return;
     }
+    const sessionId = tab.sessionId;
+    const channelId = tab.channelId;
     setTerminalError(null);
     setTerminalTabs((current) => {
       const updated: TerminalSession[] = current.map((tab) =>
-        tab.id === activeTerminal.id
+        tab.id === tabId
           ? {
               ...tab,
-              status: "disconnected"
+              status: "disconnected",
+              sessionId: undefined,
+              channelId: undefined
             }
           : tab
       );
       terminalTabsRef.current = updated;
       return updated;
     });
-    try {
-      if (activeTerminal.channelId) {
-        await window.termira.invoke("terminal.close", {
-          sessionId: activeTerminal.sessionId,
-          channelId: activeTerminal.channelId
-        });
-      }
-      await window.termira.invoke("ssh.disconnect", { sessionId: activeTerminal.sessionId });
-    } catch (error) {
-      setTerminalError(errorMessage(error));
+    if (sftpSessionId === sessionId) {
+      setSftpSessionId("");
+      setSftpEntries([]);
+      setSelectedSftpPath("");
     }
+
+    let firstError: unknown;
+    if (channelId) {
+      await window.termira
+        .invoke("terminal.close", {
+          sessionId,
+          channelId
+        })
+        .catch((error) => {
+          firstError = firstError ?? error;
+        });
+    }
+    await window.termira.invoke("ssh.disconnect", { sessionId }).catch((error) => {
+      firstError = firstError ?? error;
+    });
+
+    if (firstError) {
+      setTerminalError(errorMessage(firstError));
+    }
+  }
+
+  async function disconnectActiveTerminal() {
+    await disconnectTerminalTab(activeTerminal.id);
+  }
+
+  function handleTerminalStopButton() {
+    if (shouldCloseActiveTerminalTab) {
+      closeTerminalTab(activeTerminal.id);
+      return;
+    }
+    void disconnectActiveTerminal();
   }
 
   async function sendCommandToActiveTerminal(command: string) {
@@ -1378,6 +1819,325 @@ export function App() {
       });
     } catch (error) {
       setTerminalError(errorMessage(error));
+    }
+  }
+
+  async function loadSftpPath(path = sftpPath, sessionIdOverride?: string) {
+    const sessionId = sessionIdOverride ?? activeTerminal.sessionId;
+    if (!sessionId || activeTerminal.status !== "connected") {
+      setSftpError(text.tools.files.noSession);
+      return;
+    }
+
+    setIsSftpLoading(true);
+    setSftpError(null);
+    try {
+      const opened = await window.termira.invoke<SftpOpenResult>("sftp.open", {
+        sessionId,
+        path: path || "~"
+      });
+      const result = await window.termira.invoke<SftpListResult>("sftp.list", {
+        sessionId,
+        path: opened.path
+      });
+      setSftpSessionId(result.sessionId);
+      setSftpPath(result.path);
+      setSftpPathInput(result.path);
+      setSftpParentPath(result.parentPath);
+      setSftpEntries(result.entries);
+      setSelectedSftpPath("");
+      setSftpDragTargetPath(null);
+      setIsCreatingSftpDirectory(false);
+      setNewSftpDirectoryName("");
+      setRenamingSftpPath("");
+      setSftpRenameName("");
+    } catch (error) {
+      setSftpError(errorMessage(error));
+    } finally {
+      setIsSftpLoading(false);
+    }
+  }
+
+  function upsertSftpTransfer(transfer: SftpTransfer) {
+    setSftpTransfers((current) => {
+      const withoutCurrent = current.filter((item) => item.transferId !== transfer.transferId);
+      return [transfer, ...withoutCurrent].slice(0, 24);
+    });
+  }
+
+  function scheduleSftpRefresh(path: string, delayMs = 160) {
+    const normalizedPath = path || "~";
+    const existingTimer = sftpRefreshTimersRef.current.get(normalizedPath);
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+    const timer = window.setTimeout(() => {
+      sftpRefreshTimersRef.current.delete(normalizedPath);
+      sftpRefreshRef.current(normalizedPath);
+    }, delayMs);
+    sftpRefreshTimersRef.current.set(normalizedPath, timer);
+  }
+
+  function openSftpEntry(entry: SftpFileEntry) {
+    setSelectedSftpPath(entry.path);
+    if (entry.directory) {
+      void loadSftpPath(entry.path);
+    }
+  }
+
+  function submitSftpPathInput() {
+    const nextPath = sftpPathInput.trim();
+    if (!nextPath || nextPath === sftpPath) {
+      setSftpPathInput(sftpPath);
+      return;
+    }
+    void loadSftpPath(nextPath);
+  }
+
+  function startCreatingSftpDirectory() {
+    if (!activeTerminal.sessionId || activeTerminal.status !== "connected") {
+      setSftpError(text.tools.files.noSession);
+      return;
+    }
+    setSelectedSftpPath("");
+    setRenamingSftpPath("");
+    setSftpRenameName("");
+    setSftpError(null);
+    setNewSftpDirectoryName("");
+    setIsCreatingSftpDirectory(true);
+  }
+
+  function cancelCreatingSftpDirectory() {
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
+  }
+
+  async function createSftpDirectory(event?: FormEvent) {
+    event?.preventDefault();
+    const name = newSftpDirectoryName.trim();
+    if (!name || name.includes("/")) {
+      setSftpError(text.tools.files.folderNameRequired);
+      return;
+    }
+    const created = await runSftpOperation(() =>
+      window.termira.invoke("sftp.mkdir", {
+        sessionId: activeTerminal.sessionId,
+        path: joinRemotePath(sftpPath, name)
+      })
+    );
+    if (!created) {
+      return;
+    }
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
+  }
+
+  function startRenamingSftpEntry() {
+    if (!selectedSftpEntry) {
+      return;
+    }
+    setIsCreatingSftpDirectory(false);
+    setNewSftpDirectoryName("");
+    setSftpError(null);
+    setRenamingSftpPath(selectedSftpEntry.path);
+    setSftpRenameName(selectedSftpEntry.name);
+  }
+
+  function cancelRenamingSftpEntry() {
+    setRenamingSftpPath("");
+    setSftpRenameName("");
+  }
+
+  function changeSftpSort(key: SftpSortKey) {
+    setSftpSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc"
+    }));
+  }
+
+  async function renameSftpEntry(event?: FormEvent) {
+    event?.preventDefault();
+    const entry = sftpEntries.find((item) => item.path === renamingSftpPath) ?? selectedSftpEntry;
+    if (!entry) {
+      return;
+    }
+    const name = sftpRenameName.trim();
+    if (!name || name.includes("/")) {
+      setSftpError(text.tools.files.renameNameRequired);
+      return;
+    }
+    if (name === entry.name) {
+      cancelRenamingSftpEntry();
+      return;
+    }
+    const targetPath = joinRemotePath(sftpPath, name);
+    const renamed = await runSftpOperation(() =>
+      window.termira.invoke("sftp.rename", {
+        sessionId: activeTerminal.sessionId,
+        sourcePath: entry.path,
+        targetPath
+      })
+    );
+    if (renamed) {
+      cancelRenamingSftpEntry();
+      setSelectedSftpPath(targetPath);
+    }
+  }
+
+  async function removeSftpEntry() {
+    if (!selectedSftpEntry) {
+      return;
+    }
+    const accepted = window.confirm(text.tools.files.confirmDelete(selectedSftpEntry.name));
+    if (!accepted) {
+      return;
+    }
+    await runSftpOperation(() =>
+      window.termira.invoke("sftp.remove", {
+        sessionId: activeTerminal.sessionId,
+        path: selectedSftpEntry.path,
+        directory: selectedSftpEntry.directory
+      })
+    );
+  }
+
+  async function runSftpOperation(operation: () => Promise<unknown>): Promise<boolean> {
+    if (!activeTerminal.sessionId) {
+      setSftpError(text.tools.files.noSession);
+      return false;
+    }
+    setSftpError(null);
+    try {
+      await operation();
+      await loadSftpPath(sftpPath);
+      return true;
+    } catch (error) {
+      setSftpError(errorMessage(error));
+      return false;
+    }
+  }
+
+  async function uploadSftpFiles(files: FileList | File[] | null, targetDirectory = sftpPath) {
+    if (!files || files.length === 0 || !activeTerminal.sessionId) {
+      return;
+    }
+    setSftpError(null);
+    for (const file of Array.from(files)) {
+      const localPath = window.termira.getPathForFile(file);
+      if (!localPath) {
+        setSftpError(text.tools.files.localPathUnavailable);
+        continue;
+      }
+      try {
+        const transfer = await window.termira.invoke<SftpTransfer>("sftp.upload", {
+          sessionId: activeTerminal.sessionId,
+          localPath,
+          remotePath: joinRemotePath(targetDirectory, file.name)
+        });
+        sftpUploadTargetsRef.current.set(transfer.transferId, targetDirectory);
+        upsertSftpTransfer(transfer);
+        if (sameRemotePath(targetDirectory, sftpContextRef.current.path)) {
+          scheduleSftpRefresh(targetDirectory, transfer.status === "completed" ? 160 : 900);
+        }
+      } catch (error) {
+        setSftpError(errorMessage(error));
+      }
+    }
+  }
+
+  async function handleUploadSelection(files: FileList | null) {
+    await uploadSftpFiles(files, sftpPath);
+    if (uploadInputRef.current) {
+      uploadInputRef.current.value = "";
+    }
+  }
+
+  function canAcceptSftpDrop(event: ReactDragEvent<HTMLElement>): boolean {
+    return Boolean(isSftpAvailable && activeTerminal.sessionId && Array.from(event.dataTransfer.types).includes("Files"));
+  }
+
+  function handleSftpDragOver(event: ReactDragEvent<HTMLElement>, targetDirectory: string) {
+    if (!canAcceptSftpDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setSftpDragTargetPath(targetDirectory);
+  }
+
+  function handleSftpDragLeave(event: ReactDragEvent<HTMLElement>) {
+    const relatedTarget = event.relatedTarget;
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    setSftpDragTargetPath(null);
+  }
+
+  async function handleSftpDrop(event: ReactDragEvent<HTMLElement>, targetDirectory: string) {
+    if (!canAcceptSftpDrop(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setSftpDragTargetPath(null);
+    await uploadSftpFiles(event.dataTransfer.files, targetDirectory);
+  }
+
+  async function downloadSftpEntry() {
+    if (!selectedSftpEntry || selectedSftpEntry.directory || !activeTerminal.sessionId) {
+      return;
+    }
+    const targetPath = window.prompt(text.tools.files.downloadPrompt, `~/Downloads/${selectedSftpEntry.name}`);
+    if (!targetPath?.trim()) {
+      return;
+    }
+    setSftpError(null);
+    try {
+      const transfer = await window.termira.invoke<SftpTransfer>("sftp.download", {
+        sessionId: activeTerminal.sessionId,
+        remotePath: selectedSftpEntry.path,
+        localPath: targetPath.trim()
+      });
+      upsertSftpTransfer(transfer);
+    } catch (error) {
+      setSftpError(errorMessage(error));
+    }
+  }
+
+  async function cancelSftpTransfer(transfer: SftpTransfer) {
+    try {
+      const nextTransfer = await window.termira.invoke<SftpTransfer>("sftp.cancelTransfer", {
+        transferId: transfer.transferId
+      });
+      upsertSftpTransfer(nextTransfer);
+    } catch (error) {
+      setSftpError(errorMessage(error));
+    }
+  }
+
+  async function retrySftpTransfer(transfer: SftpTransfer) {
+    if (!activeTerminal.sessionId) {
+      setSftpError(text.tools.files.noSession);
+      return;
+    }
+    setSftpError(null);
+    try {
+      const nextTransfer =
+        transfer.direction === "upload"
+          ? await window.termira.invoke<SftpTransfer>("sftp.upload", {
+              sessionId: activeTerminal.sessionId,
+              localPath: transfer.localPath,
+              remotePath: transfer.remotePath
+            })
+          : await window.termira.invoke<SftpTransfer>("sftp.download", {
+              sessionId: activeTerminal.sessionId,
+              remotePath: transfer.remotePath,
+              localPath: transfer.localPath
+            });
+      upsertSftpTransfer(nextTransfer);
+    } catch (error) {
+      setSftpError(errorMessage(error));
     }
   }
 
@@ -1517,10 +2277,453 @@ export function App() {
     );
   }
 
+  function beginToolDockResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (isToolDockCollapsed || isHostPickerActive || isTerminalMaximized) {
+      return;
+    }
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = toolDockWidth;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    setIsToolDockResizing(true);
+
+    const finishResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setIsToolDockResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setToolDockWidth(clampToolDockWidth(startWidth + startX - moveEvent.clientX));
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleToolDockResizeKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setToolDockWidth((width) => clampToolDockWidth(width + 24));
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setToolDockWidth((width) => clampToolDockWidth(width - 24));
+    }
+  }
+
+  function beginSftpQueueResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = sftpQueueHeight;
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    setIsSftpQueueResizing(true);
+
+    const finishResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      setIsSftpQueueResizing(false);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setSftpQueueHeight(clampSftpQueueHeight(startHeight + startY - moveEvent.clientY));
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+  }
+
+  function handleSftpQueueResizeKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSftpQueueHeight((height) => clampSftpQueueHeight(height + 24));
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSftpQueueHeight((height) => clampSftpQueueHeight(height - 24));
+    }
+  }
+
   function renderFilesPanel() {
+    const canUseFiles = isSftpAvailable && Boolean(activeTerminal.sessionId);
+    const canDownload = Boolean(selectedSftpEntry && !selectedSftpEntry.directory);
+    const canMutate = Boolean(selectedSftpEntry);
+    const queueStyle = { "--sftp-queue-height": `${sftpQueueHeight}px` } as CSSProperties;
+    const renderSortButton = (key: SftpSortKey, label: string) => {
+      const isActive = sftpSort.key === key;
+      const Icon = isActive && sftpSort.direction === "desc" ? ArrowDown : ArrowUp;
+      return (
+        <button
+          className={`file-sort-button ${isActive ? "is-active" : ""}`}
+          type="button"
+          aria-label={text.tools.files.sortBy(label)}
+          onClick={() => changeSftpSort(key)}
+        >
+          <span>{label}</span>
+          {isActive ? <Icon size={13} aria-hidden="true" /> : null}
+        </button>
+      );
+    };
+
     return (
-      <div className="tool-content">
-        {renderFutureToolPanel(<FolderOpen size={18} aria-hidden="true" />, text.tools.files.unavailable)}
+      <div className="tool-content tool-content--files">
+        <div className="sftp-browser-head">
+          <div className="tool-path">
+            <FolderOpen size={15} aria-hidden="true" />
+            <input
+              value={canUseFiles ? sftpPathInput : text.tools.files.noSession}
+              title={canUseFiles ? sftpPath : text.tools.files.noSession}
+              aria-label={text.tools.files.pathInput}
+              disabled={!canUseFiles}
+              spellCheck={false}
+              onChange={(event) => setSftpPathInput(event.currentTarget.value)}
+              onBlur={() => setSftpPathInput(sftpPath)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitSftpPathInput();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSftpPathInput(sftpPath);
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+          </div>
+
+          <div className="icon-toolbar" aria-label={text.tools.files.toolbar}>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.up}
+              aria-label={text.tools.files.up}
+              disabled={!canUseFiles || !sftpParentPath || sftpPath === sftpParentPath}
+              onClick={() => void loadSftpPath(sftpParentPath)}
+            >
+              <ArrowUp size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.actions.refresh}
+              aria-label={text.actions.refresh}
+              disabled={!canUseFiles || isSftpLoading}
+              onClick={() => void loadSftpPath(sftpPath)}
+            >
+              {isSftpLoading ? <Loader2 className="spin-icon" size={15} aria-hidden="true" /> : <RefreshCw size={15} aria-hidden="true" />}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.followTerminalCwd}
+              aria-label={text.tools.files.followTerminalCwd}
+              disabled={!canUseFiles || !activeTerminal.cwd}
+              onClick={() => void loadSftpPath(activeTerminal.cwd || "~")}
+            >
+              <Terminal size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.upload}
+              aria-label={text.tools.files.upload}
+              disabled={!canUseFiles}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <Upload size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.download}
+              aria-label={text.tools.files.download}
+              disabled={!canUseFiles || !canDownload}
+              onClick={() => void downloadSftpEntry()}
+            >
+              <Download size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.mkdir}
+              aria-label={text.tools.files.mkdir}
+              disabled={!canUseFiles}
+              onClick={startCreatingSftpDirectory}
+            >
+              <FolderPlus size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title={text.tools.files.rename}
+              aria-label={text.tools.files.rename}
+              disabled={!canUseFiles || !canMutate}
+              onClick={startRenamingSftpEntry}
+            >
+              <Pencil size={15} aria-hidden="true" />
+            </button>
+            <button
+              className="icon-button icon-button--danger"
+              type="button"
+              title={text.tools.files.delete}
+              aria-label={text.tools.files.delete}
+              disabled={!canUseFiles || !canMutate}
+              onClick={() => void removeSftpEntry()}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+            </button>
+            <input
+              ref={uploadInputRef}
+              className="visually-hidden"
+              type="file"
+              multiple
+              tabIndex={-1}
+              onChange={(event) => void handleUploadSelection(event.currentTarget.files)}
+            />
+          </div>
+
+          {!canUseFiles ? (
+            <div className="inline-state">
+              <FolderOpen size={15} aria-hidden="true" />
+              <span>{text.tools.files.noSession}</span>
+            </div>
+          ) : null}
+
+          {sftpError ? (
+            <div className="inline-state inline-state--error">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>{sftpError}</span>
+            </div>
+          ) : null}
+        </div>
+
+	        <div
+	          className={`file-table ${sftpDragTargetPath ? "is-dragging" : ""} ${sftpDragTargetPath === sftpPath ? "is-drop-target" : ""}`}
+	          aria-label={text.tools.files.list}
+	          onDragOver={(event) => handleSftpDragOver(event, sftpPath)}
+	          onDragLeave={handleSftpDragLeave}
+	          onDrop={(event) => void handleSftpDrop(event, sftpPath)}
+	        >
+	          {sftpDragTargetPath ? (
+	            <div className="file-drop-indicator" aria-live="polite">
+	              <Upload size={15} aria-hidden="true" />
+	              <span>{sftpDragTargetPath === sftpPath ? text.tools.files.dropUploadHere : text.tools.files.dropUploadIntoFolder}</span>
+	            </div>
+	          ) : null}
+	          <div className="file-row file-row--head">
+	            {renderSortButton("name", text.tools.files.name)}
+	            {renderSortButton("modified", text.tools.files.modified)}
+	            {renderSortButton("size", text.tools.files.size)}
+	            {renderSortButton("permissions", text.tools.files.kind)}
+	          </div>
+	          {canUseFiles && sftpPath !== "/" && sftpParentPath ? (
+	            <button
+	              className="file-row file-row--parent"
+	              type="button"
+	              title={sftpParentPath}
+	              onClick={() => void loadSftpPath(sftpParentPath)}
+	            >
+	              <span className="file-name">
+	                <Folder size={15} aria-hidden="true" />
+	                <span>..</span>
+	              </span>
+	              <span className="file-cell file-cell--muted">-</span>
+	              <span className="file-cell file-cell--muted">-</span>
+	              <span className="file-cell">{text.tools.files.parentFolder}</span>
+	            </button>
+	          ) : null}
+	          {isCreatingSftpDirectory ? (
+	            <form className="file-row file-row--create" onSubmit={(event) => void createSftpDirectory(event)}>
+	              <span className="file-name">
+	                <Folder size={15} aria-hidden="true" />
+	                <input
+	                  ref={newSftpDirectoryInputRef}
+	                  value={newSftpDirectoryName}
+	                  placeholder={text.tools.files.newFolderPlaceholder}
+	                  onChange={(event) => setNewSftpDirectoryName(event.currentTarget.value)}
+	                  onKeyDown={(event) => {
+	                    if (event.key === "Escape") {
+	                      event.preventDefault();
+	                      cancelCreatingSftpDirectory();
+	                    }
+	                  }}
+	                />
+	              </span>
+	              <span className="file-create-actions">
+	                <button className="icon-button" type="submit" title={text.tools.files.create} aria-label={text.tools.files.create}>
+	                  <Check size={14} aria-hidden="true" />
+	                </button>
+	                <button className="icon-button" type="button" title={text.hostEditor.cancel} aria-label={text.hostEditor.cancel} onClick={cancelCreatingSftpDirectory}>
+	                  <X size={14} aria-hidden="true" />
+	                </button>
+              </span>
+            </form>
+          ) : null}
+	          {isSftpLoading ? (
+	            <div className="file-row file-row--state">
+	              <span>
+                <Loader2 className="spin-icon" size={14} aria-hidden="true" />
+                {text.tools.files.loading}
+              </span>
+            </div>
+          ) : sortedSftpEntries.length > 0 ? (
+            sortedSftpEntries.map((entry) =>
+              entry.path === renamingSftpPath ? (
+                <form key={entry.path} className="file-row file-row--create file-row--rename" onSubmit={(event) => void renameSftpEntry(event)}>
+                  <span className="file-name">
+                    {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
+                    <input
+                      ref={renameSftpInputRef}
+                      value={sftpRenameName}
+                      placeholder={text.tools.files.renamePrompt}
+                      onChange={(event) => setSftpRenameName(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRenamingSftpEntry();
+                        }
+                      }}
+                    />
+                  </span>
+                  <span className="file-create-actions">
+                    <button className="icon-button" type="submit" title={text.tools.files.rename} aria-label={text.tools.files.rename}>
+                      <Check size={14} aria-hidden="true" />
+                    </button>
+                    <button className="icon-button" type="button" title={text.hostEditor.cancel} aria-label={text.hostEditor.cancel} onClick={cancelRenamingSftpEntry}>
+                      <X size={14} aria-hidden="true" />
+                    </button>
+                  </span>
+                </form>
+              ) : (
+                <button
+                  key={entry.path}
+                  className={`file-row ${selectedSftpPath === entry.path ? "is-active" : ""} ${
+                    entry.directory && sftpDragTargetPath === entry.path ? "file-row--drop-target" : ""
+                  }`}
+                  type="button"
+                  title={entry.path}
+                  onClick={() => setSelectedSftpPath(entry.path)}
+                  onDoubleClick={() => openSftpEntry(entry)}
+                  onDragOver={entry.directory ? (event) => handleSftpDragOver(event, entry.path) : undefined}
+                  onDragLeave={entry.directory ? handleSftpDragLeave : undefined}
+                  onDrop={entry.directory ? (event) => void handleSftpDrop(event, entry.path) : undefined}
+                >
+                  <span className="file-name">
+                    {entry.directory ? <Folder size={15} aria-hidden="true" /> : <FileIcon size={15} aria-hidden="true" />}
+                    <span>{entry.name}</span>
+                  </span>
+                  <span className="file-cell">{formatRemoteTime(entry.modifiedAt)}</span>
+                  <span className="file-cell">{entry.directory ? "-" : formatBytes(entry.size)}</span>
+                  <span className="file-cell">{entry.directory ? text.tools.files.folderType : entry.permissions}</span>
+                </button>
+              )
+            )
+          ) : (
+            <div className="file-row file-row--state">
+              <span>{canUseFiles ? text.tools.files.empty : text.tools.files.noSession}</span>
+            </div>
+          )}
+        </div>
+
+	        <section
+	          className={`subpanel subpanel--queue ${isSftpQueueResizing ? "is-resizing" : ""}`}
+	          aria-label={text.tools.files.queue}
+	          style={queueStyle}
+	        >
+	          <button
+	            className="queue-resize-handle"
+	            type="button"
+	            role="separator"
+	            aria-orientation="horizontal"
+	            aria-label={text.tools.files.resizeQueue}
+	            title={text.tools.files.resizeQueue}
+	            aria-valuemin={MIN_SFTP_QUEUE_HEIGHT}
+	            aria-valuemax={MAX_SFTP_QUEUE_HEIGHT}
+	            aria-valuenow={sftpQueueHeight}
+	            onPointerDown={beginSftpQueueResize}
+	            onKeyDown={handleSftpQueueResizeKeyDown}
+	          />
+          <div className="subpanel-heading">
+            <span>{text.tools.files.queue}</span>
+            <strong className={`queue-count ${sftpTransfers.length === 0 ? "queue-count--idle" : ""}`}>
+              {sftpTransfers.length > 0 ? text.tools.files.queueCount(sftpTransfers.length) : text.tools.files.queueIdle}
+            </strong>
+          </div>
+          <div className={`queue-list ${sftpTransfers.length === 0 ? "queue-list--empty" : ""}`}>
+            {sftpTransfers.length > 0 ? (
+              sftpTransfers.map((transfer) => (
+                <article
+                  key={transfer.transferId}
+                  className={`queue-item ${
+                    transfer.status === "failed" || transfer.status === "cancelled" ? "queue-item--failed" : ""
+                  }`}
+                >
+                  <div className="queue-main">
+                    <span title={transfer.remotePath}>
+                      {transfer.direction === "upload" ? <Upload size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
+                      {transfer.fileName}
+                    </span>
+                    <strong>{text.tools.files.transferStatus[transfer.status]}</strong>
+                  </div>
+                  <div className="progress-track">
+                    <span style={{ width: `${Math.max(0, Math.min(100, transfer.percent))}%` }} />
+                  </div>
+                  <div className="queue-foot">
+                    <small>
+                      {formatBytes(transfer.bytesTransferred)} / {formatBytes(transfer.totalBytes)}
+                    </small>
+                    <span>
+                      {transfer.status === "queued" || transfer.status === "running" ? (
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title={text.tools.files.cancel}
+                          aria-label={text.tools.files.cancel}
+                          onClick={() => void cancelSftpTransfer(transfer)}
+                        >
+                          <Ban size={13} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      {transfer.status === "failed" || transfer.status === "cancelled" ? (
+                        <button
+                          className="icon-button"
+                          type="button"
+                          title={text.tools.files.retry}
+                          aria-label={text.tools.files.retry}
+                          onClick={() => void retrySftpTransfer(transfer)}
+                        >
+                          <RotateCcw size={13} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      {transfer.status === "completed" ? <Check size={14} aria-hidden="true" /> : null}
+                    </span>
+                  </div>
+                  {transfer.errorMessage ? <small className="queue-error">{transfer.errorMessage}</small> : null}
+                </article>
+              ))
+            ) : (
+              <div className="queue-empty-state">
+                <span>{text.tools.files.queueEmpty}</span>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     );
   }
@@ -1743,6 +2946,73 @@ export function App() {
     );
   }
 
+  function renderTerminalTabMenu() {
+    if (!terminalTabMenu) {
+      return null;
+    }
+    const tab = terminalTabs.find((item) => item.id === terminalTabMenu.tabId);
+    if (!tab) {
+      return null;
+    }
+    const canReconnectTab = tab.kind !== "hostPicker" && tab.status !== "connected" && tab.status !== "connecting";
+    const canDisconnectTab = Boolean(tab.sessionId) && tab.status !== "disconnected" && tab.status !== "failed";
+
+    return (
+      <>
+        <div
+          className="terminal-tab-menu-backdrop"
+          role="presentation"
+          onMouseDown={() => setTerminalTabMenu(null)}
+          onClick={() => setTerminalTabMenu(null)}
+        />
+        <div
+          className="terminal-tab-menu"
+          role="menu"
+          aria-label={translate(tab.title, language)}
+          style={{ left: terminalTabMenu.x, top: terminalTabMenu.y }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => duplicateTerminalTab(tab.id)}>
+            <RefreshCw size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.duplicate}</span>
+          </button>
+          {canReconnectTab ? (
+            <button type="button" role="menuitem" onClick={() => reconnectTerminalTab(tab.id)}>
+              <RotateCcw size={15} aria-hidden="true" />
+              <span>{text.terminal.tabMenu.reconnect}</span>
+            </button>
+          ) : (
+            <button type="button" role="menuitem" disabled={!canDisconnectTab} onClick={() => void disconnectTerminalTab(tab.id)}>
+              <Square size={15} aria-hidden="true" />
+              <span>{text.terminal.tabMenu.disconnect}</span>
+            </button>
+          )}
+          <button type="button" role="menuitem" disabled>
+            <Maximize2 size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.duplicateWindow}</span>
+          </button>
+          <button type="button" role="menuitem" disabled>
+            <Network size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.multiplayer}</span>
+          </button>
+          <span className="terminal-tab-menu-separator" aria-hidden="true" />
+          <button type="button" role="menuitem" onClick={() => renameTerminalTab(tab.id)}>
+            <Pencil size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.rename}</span>
+          </button>
+          <button type="button" role="menuitem" disabled>
+            <Minus size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.splitHorizontal}</span>
+          </button>
+          <button type="button" role="menuitem" onClick={() => closeTerminalTab(tab.id)}>
+            <X size={15} aria-hidden="true" />
+            <span>{text.terminal.tabMenu.close}</span>
+          </button>
+        </div>
+      </>
+    );
+  }
+
   return (
       <main
       className={`app-shell ${activeView === "settings" ? "is-settings-view" : ""} ${
@@ -1800,18 +3070,30 @@ export function App() {
 	            <section
 	              className={`workbench-grid ${isToolDockCollapsed ? "is-tool-collapsed" : ""} ${
 	                isHostPickerActive ? "is-host-picker" : ""
+	              } ${isTerminalMaximized ? "is-terminal-maximized" : ""} ${
+	                isToolDockResizing ? "is-resizing-tool" : ""
 	              }`}
+	              style={workbenchStyle}
 	            >
               <div className="terminal-column">
-                <section className="terminal-stage" aria-label={text.terminal.title}>
-                  <div className="terminal-tabs">
-                    {visibleTerminalTabs.map((tab) => (
-                      <div
+	                <section className="terminal-stage" aria-label={text.terminal.title}>
+	                  <div className="terminal-tabs">
+	                    {visibleTerminalTabs.map((tab) => (
+	                      <div
                         key={tab.id}
                         className={`terminal-tab ${activeTerminal.id === tab.id ? "is-active" : ""}`}
                         title={translate(tab.title, language)}
+                        onContextMenu={(event) => openTerminalTabMenu(tab.id, event)}
                       >
-	                        <button className="terminal-tab-main" type="button" title={translate(tab.title, language)} onClick={() => setActiveTerminalTabId(tab.id)}>
+	                        <button
+                            className="terminal-tab-main"
+                            type="button"
+                            title={translate(tab.title, language)}
+                            onClick={() => {
+                              setTerminalTabMenu(null);
+                              setActiveTerminalTabId(tab.id);
+                            }}
+                          >
 	                          {tab.kind === "hostPicker" ? <Plus size={14} aria-hidden="true" /> : <Terminal size={14} aria-hidden="true" />}
 	                          <span>{translate(tab.title, language)}</span>
 	                        </button>
@@ -1838,6 +3120,7 @@ export function App() {
 	                      onClick={openNewTerminalTab}
 	                    >
 	                      <Plus size={14} aria-hidden="true" />
+                        <span>{text.terminal.newTabTitle}</span>
 	                    </button>
 	                  </div>
 	                  <div className="terminal-content-stack">
@@ -1862,17 +3145,22 @@ export function App() {
                         >
                           {activeTerminal.status === "connecting" ? <Loader2 className="spin-icon" size={14} aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
                         </button>
+	                        <button
+	                          type="button"
+	                          title={shouldCloseActiveTerminalTab ? text.terminal.closeTab : text.hosts.disconnect}
+	                          aria-label={shouldCloseActiveTerminalTab ? text.terminal.closeTab : text.hosts.disconnect}
+	                          disabled={isTerminalStopButtonDisabled}
+	                          onClick={handleTerminalStopButton}
+	                        >
+	                          {shouldCloseActiveTerminalTab ? <X size={14} aria-hidden="true" /> : <Square size={14} aria-hidden="true" />}
+	                        </button>
                         <button
                           type="button"
-                          title={text.hosts.disconnect}
-                          aria-label={text.hosts.disconnect}
-                          disabled={!activeTerminal.sessionId || activeTerminal.status === "disconnected"}
-                          onClick={disconnectActiveTerminal}
+                          title={isTerminalMaximized ? text.actions.restore : text.actions.maximize}
+                          aria-label={isTerminalMaximized ? text.actions.restore : text.actions.maximize}
+                          onClick={() => setIsTerminalMaximized((current) => !current)}
                         >
-                          <Square size={14} aria-hidden="true" />
-                        </button>
-                        <button type="button" title={text.actions.maximize} aria-label={text.actions.maximize}>
-                          <Maximize2 size={14} aria-hidden="true" />
+                          {isTerminalMaximized ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
                         </button>
                       </div>
                     </div>
@@ -1904,12 +3192,25 @@ export function App() {
 	                </section>
               </div>
 
-	              {!isHostPickerActive ? (
+	              {!isHostPickerActive && !isTerminalMaximized ? (
 	              <aside className={`tool-dock ${isToolDockCollapsed ? "is-collapsed" : ""}`} aria-label={text.tools.title}>
                 {isToolDockCollapsed ? (
                   renderToolSideRail()
                 ) : (
                   <>
+                    <button
+                      className="tool-dock-resize-handle"
+                      type="button"
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={text.tools.resizePanel}
+                      title={text.tools.resizePanel}
+                      aria-valuemin={MIN_TOOL_DOCK_WIDTH}
+                      aria-valuemax={MAX_TOOL_DOCK_WIDTH}
+                      aria-valuenow={toolDockWidth}
+                      onPointerDown={beginToolDockResize}
+                      onKeyDown={handleToolDockResizeKeyDown}
+                    />
                     {renderToolSideRail()}
                     <div className={`tool-panel ${activeTool === "themes" ? "tool-panel--settings" : ""}`}>
                       {activeTool !== "themes" ? (
@@ -2056,11 +3357,12 @@ export function App() {
                 </div>
               </div>
             </section>
-          </section>
-        )}
-      </section>
-      {isHostEditorOpen ? (
-        <div className="modal-backdrop" role="presentation">
+	          </section>
+	        )}
+	      </section>
+      {renderTerminalTabMenu()}
+	      {isHostEditorOpen ? (
+	        <div className="modal-backdrop" role="presentation">
           <form className="host-editor" onSubmit={saveHost}>
             <div className="modal-heading">
               <div>
@@ -2399,6 +3701,170 @@ function parseTerminalFontSize(value: string | null): number {
 
 function clampTerminalFontSize(value: number): number {
   return Math.min(MAX_TERMINAL_FONT_SIZE, Math.max(MIN_TERMINAL_FONT_SIZE, Math.round(value)));
+}
+
+function parseToolDockWidth(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampToolDockWidth(parsed) : DEFAULT_TOOL_DOCK_WIDTH;
+}
+
+function clampToolDockWidth(value: number): number {
+  return Math.min(MAX_TOOL_DOCK_WIDTH, Math.max(MIN_TOOL_DOCK_WIDTH, Math.round(value)));
+}
+
+function parseSftpQueueHeight(value: string | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clampSftpQueueHeight(parsed) : DEFAULT_SFTP_QUEUE_HEIGHT;
+}
+
+function clampSftpQueueHeight(value: number): number {
+  return Math.min(MAX_SFTP_QUEUE_HEIGHT, Math.max(MIN_SFTP_QUEUE_HEIGHT, Math.round(value)));
+}
+
+function sortSftpEntries(entries: SftpFileEntry[], sort: SftpSortState): SftpFileEntry[] {
+  const direction = sort.direction === "asc" ? 1 : -1;
+  return [...entries].sort((left, right) => {
+    const compared = compareSftpEntry(left, right, sort.key);
+    if (compared !== 0) {
+      return compared * direction;
+    }
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function compareSftpEntry(left: SftpFileEntry, right: SftpFileEntry, key: SftpSortKey): number {
+  if (key === "name") {
+    return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" });
+  }
+  if (key === "modified") {
+    return (left.modifiedTime || 0) - (right.modifiedTime || 0);
+  }
+  if (key === "size") {
+    return left.size - right.size;
+  }
+  const leftKind = left.directory ? "0" : `1-${left.permissions}`;
+  const rightKind = right.directory ? "0" : `1-${right.permissions}`;
+  return leftKind.localeCompare(rightKind, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function joinRemotePath(basePath: string, name: string): string {
+  const trimmedName = name.trim();
+  if (!basePath || basePath === "/") {
+    return `/${trimmedName}`;
+  }
+  return `${basePath.replace(/\/+$/, "")}/${trimmedName}`;
+}
+
+function inferCwdFromShellCommand(command: string, currentCwd: string): string | null {
+  const match = command.match(/^cd(?:\s+(.+))?$/);
+  if (!match) {
+    return null;
+  }
+
+  const target = normalizeCdTarget(match[1]);
+  if (!target || target === "-") {
+    return null;
+  }
+  if (target === "~") {
+    return "~";
+  }
+  if (target.startsWith("/")) {
+    return normalizeRemoteDirectory(target);
+  }
+  if (target.startsWith("~/")) {
+    return normalizeRemoteDirectory(target);
+  }
+  return normalizeRemoteDirectory(joinRemotePath(currentCwd || "~", target));
+}
+
+function normalizeCdTarget(value?: string): string | null {
+  if (!value || !value.trim()) {
+    return "~";
+  }
+
+  const target = value.trim();
+  if (/[;&|<>`]/.test(target) || target.includes("$(")) {
+    return null;
+  }
+  if ((target.startsWith('"') && target.endsWith('"')) || (target.startsWith("'") && target.endsWith("'"))) {
+    return target.slice(1, -1).trim() || null;
+  }
+  if (/\s/.test(target)) {
+    return null;
+  }
+  return target;
+}
+
+function normalizeRemoteDirectory(path: string): string {
+  const isHomeRelative = path === "~" || path.startsWith("~/");
+  const prefix = isHomeRelative ? "~" : "";
+  const rawSegments = (isHomeRelative ? path.slice(2) : path).split("/");
+  const segments: string[] = [];
+
+  for (const segment of rawSegments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  if (isHomeRelative) {
+    return segments.length > 0 ? `${prefix}/${segments.join("/")}` : "~";
+  }
+  return `/${segments.join("/")}`.replace(/\/+$/, "") || "/";
+}
+
+function sameRemotePath(left?: string, right?: string): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  return trimRemoteSlash(left) === trimRemoteSlash(right);
+}
+
+function sameRemoteParent(path: string, parent: string): boolean {
+  const normalizedParent = trimRemoteSlash(parent);
+  const index = path.lastIndexOf("/");
+  const currentParent = index <= 0 ? "/" : path.slice(0, index);
+  return trimRemoteSlash(currentParent) === normalizedParent;
+}
+
+function trimRemoteSlash(path: string): string {
+  return path === "/" ? "/" : path.replace(/\/+$/, "");
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const precision = unitIndex === 0 || size >= 10 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function formatRemoteTime(value?: string): string {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function errorMessage(error: unknown): string {

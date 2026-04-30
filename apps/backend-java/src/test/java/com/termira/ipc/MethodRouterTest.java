@@ -60,4 +60,13 @@ class MethodRouterTest {
                 .isInstanceOfSatisfying(AppError.class, error ->
                         assertThat(error.code()).isEqualTo(ErrorCode.SSH_VALIDATION_FAILED));
     }
+
+    @Test
+    void returnsSftpValidationForListWithoutSession() {
+        MethodRouter router = new MethodRouter(tempDir);
+
+        assertThatThrownBy(() -> router.route(new IpcRequest("req_1", "request", "sftp.list", null)))
+                .isInstanceOfSatisfying(AppError.class, error ->
+                        assertThat(error.code()).isEqualTo(ErrorCode.SFTP_VALIDATION_FAILED));
+    }
 }

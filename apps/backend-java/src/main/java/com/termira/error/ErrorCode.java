@@ -21,6 +21,14 @@ public final class ErrorCode {
     public static final String SSH_CHANNEL_OPEN_FAILED = "SSH_CHANNEL_OPEN_FAILED";
     public static final String SSH_CHANNEL_WRITE_FAILED = "SSH_CHANNEL_WRITE_FAILED";
     public static final String SSH_VALIDATION_FAILED = "SSH_VALIDATION_FAILED";
+    public static final String SFTP_NOT_CONNECTED = "SFTP_NOT_CONNECTED";
+    public static final String SFTP_PERMISSION_DENIED = "SFTP_PERMISSION_DENIED";
+    public static final String SFTP_PATH_NOT_FOUND = "SFTP_PATH_NOT_FOUND";
+    public static final String SFTP_OPERATION_FAILED = "SFTP_OPERATION_FAILED";
+    public static final String SFTP_TRANSFER_FAILED = "SFTP_TRANSFER_FAILED";
+    public static final String SFTP_TRANSFER_CANCELLED = "SFTP_TRANSFER_CANCELLED";
+    public static final String SFTP_TRANSFER_NOT_FOUND = "SFTP_TRANSFER_NOT_FOUND";
+    public static final String SFTP_VALIDATION_FAILED = "SFTP_VALIDATION_FAILED";
 
     private ErrorCode() {
     }
