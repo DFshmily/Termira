@@ -4173,7 +4173,6 @@ export function App() {
 	                      onClick={openNewTerminalTab}
 	                    >
 	                      <Plus size={14} aria-hidden="true" />
-                        <span>{text.terminal.newTabTitle}</span>
 	                    </button>
 	                  </div>
 	                  <div className="terminal-content-stack">
