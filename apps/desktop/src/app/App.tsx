@@ -389,6 +389,14 @@ type TerminalFontOption = {
   stack: string;
 };
 
+type AppPreferences = {
+  terminal?: {
+    themeId?: unknown;
+    fontId?: unknown;
+    fontSize?: unknown;
+  };
+};
+
 const LANGUAGE_STORAGE_KEY = "termira.ui.language";
 const HOST_PICKER_HOST_ID = "__host_picker";
 const TERMINAL_THEME_STORAGE_KEY = "termira.terminal.theme";
@@ -822,6 +830,7 @@ export function App() {
   const [terminalFontSize, setTerminalFontSize] = useState(() =>
     parseTerminalFontSize(window.localStorage.getItem(TERMINAL_FONT_SIZE_STORAGE_KEY))
   );
+  const [isAppPreferencesLoaded, setIsAppPreferencesLoaded] = useState(false);
   const [toolDockWidth, setToolDockWidth] = useState(() =>
     parseToolDockWidth(window.localStorage.getItem(TOOL_DOCK_WIDTH_STORAGE_KEY))
   );
@@ -1096,6 +1105,46 @@ export function App() {
   }, [language]);
 
   useEffect(() => {
+    let isCancelled = false;
+
+    void window.termira
+      .invoke<AppPreferences>("app.getPreferences")
+      .then((preferences) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const terminalPreferences = preferences.terminal;
+        const themeId = typeof terminalPreferences?.themeId === "string" ? terminalPreferences.themeId : null;
+        const fontId = typeof terminalPreferences?.fontId === "string" ? terminalPreferences.fontId : null;
+        const fontSize =
+          typeof terminalPreferences?.fontSize === "number" || typeof terminalPreferences?.fontSize === "string"
+            ? String(terminalPreferences.fontSize)
+            : null;
+
+        if (isTerminalThemeId(themeId)) {
+          setTerminalThemeId(themeId);
+        }
+        if (isTerminalFontId(fontId)) {
+          setTerminalFontId(fontId);
+        }
+        if (fontSize !== null) {
+          setTerminalFontSize(parseTerminalFontSize(fontSize));
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!isCancelled) {
+          setIsAppPreferencesLoaded(true);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     window.localStorage.setItem(TERMINAL_THEME_STORAGE_KEY, terminalTheme.id);
     for (const entry of xtermEntriesRef.current.values()) {
       entry.terminal.options.theme = terminalTheme.palette;
@@ -1114,6 +1163,22 @@ export function App() {
       fitAndResizeTerminal(tabId);
     }
   }, [fitAndResizeTerminal, terminalFont, terminalFontSize]);
+
+  useEffect(() => {
+    if (!isAppPreferencesLoaded) {
+      return;
+    }
+
+    void window.termira
+      .invoke("app.updatePreferences", {
+        terminal: {
+          themeId: terminalTheme.id,
+          fontId: terminalFont.id,
+          fontSize: terminalFontSize
+        }
+      })
+      .catch(() => undefined);
+  }, [isAppPreferencesLoaded, terminalFont.id, terminalFontSize, terminalTheme.id]);
 
   useEffect(() => {
     window.localStorage.setItem(TOOL_DOCK_WIDTH_STORAGE_KEY, String(toolDockWidth));

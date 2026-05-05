@@ -1,13 +1,55 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { SidecarManager } from "./sidecar";
 
 app.setName("Termira");
 
 const sidecar = new SidecarManager();
+const PREFERENCES_FILE_NAME = "preferences.json";
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
+
+type PreferencesRecord = Record<string, unknown>;
+
+function isPlainObject(value: unknown): value is PreferencesRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function preferencesPath(): string {
+  return path.join(app.getPath("userData"), PREFERENCES_FILE_NAME);
+}
+
+function readPreferences(): PreferencesRecord {
+  const filePath = preferencesPath();
+  if (!fs.existsSync(filePath)) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return isPlainObject(parsed) ? parsed : {};
+  } catch (error) {
+    console.warn("Failed to read Termira preferences:", error);
+    return {};
+  }
+}
+
+function writePreferences(preferences: PreferencesRecord): PreferencesRecord {
+  fs.mkdirSync(app.getPath("userData"), { recursive: true });
+  fs.writeFileSync(preferencesPath(), `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
+  return preferences;
+}
+
+function mergePreferences(current: PreferencesRecord, patch: PreferencesRecord): PreferencesRecord {
+  const next: PreferencesRecord = { ...current };
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = next[key];
+    next[key] = isPlainObject(existing) && isPlainObject(value) ? { ...existing, ...value } : value;
+  }
+  return next;
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -50,6 +92,17 @@ ipcMain.handle("termira:invoke", async (_event, request: { method?: string; para
 
   if (typeof method !== "string" || method.length === 0) {
     throw new Error("IPC method must be a non-empty string.");
+  }
+
+  if (method === "app.getPreferences") {
+    return readPreferences();
+  }
+
+  if (method === "app.updatePreferences") {
+    if (!isPlainObject(request.params)) {
+      throw new Error("Preferences update must be an object.");
+    }
+    return writePreferences(mergePreferences(readPreferences(), request.params));
   }
 
   if (method === "app.getBackendStatus") {
